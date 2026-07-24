@@ -27,8 +27,7 @@ def _build_tls(clash_node: dict) -> dict:
     tls = {'enabled': True}
     if clash_node.get('sni'):
         tls['server_name'] = clash_node['sni']
-    if clash_node.get('skip-cert-verify'):
-        tls['insecure'] = True
+    tls['insecure'] = bool(clash_node.get('skip-cert-verify'))
     if clash_node.get('alpn'):
         tls['alpn'] = clash_node['alpn']
     fp = clash_node.get('client-fingerprint')

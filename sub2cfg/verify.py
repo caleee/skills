@@ -18,6 +18,11 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
 sys.path.insert(0, os.path.join(SCRIPT_DIR, 'scripts'))
 
+from protocol import SINGBOX_TO_CLASH_TYPE
+
+# 代理出站类型（来源 protocol.py，新增协议时无需改此处）
+_PROXY_OUTBOUND_TYPES = tuple(SINGBOX_TO_CLASH_TYPE)
+
 
 def run_sub2cfg(input_path, *args):
     """运行 sub2cfg.py 并返回结果。"""
@@ -76,7 +81,7 @@ def node_count(text):
             return len(data['proxies'])
         if 'outbounds' in data:
             # 只统计代理类型 outbound，跳过 group/direct
-            return sum(1 for o in data['outbounds'] if o.get('type') in ('anytls', 'shadowsocks', 'trojan', 'hysteria2'))
+            return sum(1 for o in data['outbounds'] if o.get('type') in _PROXY_OUTBOUND_TYPES)
         return 0
     except Exception as e:
         print(f'  [警告] node_count 解析失败: {e}', file=sys.stderr)
