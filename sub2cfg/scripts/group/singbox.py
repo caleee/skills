@@ -2,7 +2,7 @@
 Sing-box 出站组生成
 """
 
-from _group_builder import build_base_groups
+from group_builder import build_base_groups
 
 
 def build_groups(nodes: list) -> list:
@@ -17,21 +17,14 @@ def build_groups(nodes: list) -> list:
         'tag': 'DIRECT',
     })
 
-    # 1. PROXIES — 主选择组
+    # 1. PROXIES - 主选择组
     outbounds.append({
         'type': 'selector',
         'tag': 'PROXIES',
         'outbounds': base['proxies'],
     })
 
-    # 2. FINAL — 兜底组（与 spec 示例保持一致：在区域 urltest 之前）
-    outbounds.append({
-        'type': 'selector',
-        'tag': 'FINAL',
-        'outbounds': ['PROXIES'] + base['region_names'] + ['DIRECT'],
-    })
-
-    # 3. 区域 urltest 组
+    # 2. 区域 urltest 组
     for r in base['region_names']:
         outbounds.append({
             'type': 'urltest',
@@ -41,5 +34,12 @@ def build_groups(nodes: list) -> list:
             'interval': '5m',
             'tolerance': 50,
         })
+
+    # 3. FINAL - 兜底组
+    outbounds.append({
+        'type': 'selector',
+        'tag': 'FINAL',
+        'outbounds': ['PROXIES'] + base['region_names'] + ['DIRECT'],
+    })
 
     return outbounds

@@ -11,7 +11,8 @@ name: sub2cfg 模块清单
 | 订阅格式 | 识别方法 | 提取方式 | 当前状态 |
 |----------|----------|----------|----------|
 | Clash YAML | 包含 `proxies:` 段 | 直接提取 `proxies:` 下的节点列表 | 已支持 |
-| Surge / Loon | 包含 `[Proxy]` 段 | 解析 `name = protocol, server, port, ...` 格式 | 已支持 |
+| Surge | 包含 `[Proxy]` 段且有 `udp-relay` | 解析 `name = protocol, server, port, ...` 格式 | 已支持 |
+| Loon | 包含 `[Proxy]` 段且无 `udp-relay` | 解析 `name = protocol, server, port, ...` 格式 | 已支持 |
 | Shadowrocket | 行以 `ss://` 或 `trojan://` 开头 | 解析 URI 格式 | 已支持 |
 | Base64 编码 | 需显式 `-f base64-uri`（自动检测时 base64 内容会被识别为 shadowrocket） | base64 解码后递归检测 | 已支持 |
 | Sing-box JSON | 包含 `"outbounds"` 段 | 解析 JSON outbounds 数组 | 已支持 |
@@ -35,7 +36,7 @@ name: sub2cfg 模块清单
 |------|------|------|
 | spec/surge.proxy.md | Surge | Surge [Proxy] 段落格式定义 |
 | spec/loon.proxy.md | Loon | Loon [Proxy] 段落格式定义 |
-| spec/shadowrocket.md | Shadowrocket | Shadowrocket URI 格式定义 |
+| spec/shadowrocket.uri.md | Shadowrocket | Shadowrocket URI 格式定义 |
 
 ### 组格式
 
@@ -58,7 +59,7 @@ name: sub2cfg 模块清单
 
 | 文件 | 源平台 | 目标平台 | 说明 |
 |------|--------|----------|------|
-| convert/clash.group-gen.md | Clash | Clash | 从节点列表生成 proxy-groups |
+| convert/clash-to-clash.group-gen.md | Clash | Clash | 从节点列表生成 proxy-groups |
 | convert/clash-to-sing-box.group-gen.md | Clash | Sing-box | 从节点列表生成 outbound-groups |
 
 ## 区域映射表

@@ -57,7 +57,7 @@ cd sub2cfg && python3 -m pytest tests/ -v
 
 ### 提取器接口
 
-所有 `extract/*.py` 导出 `extract(content: str) -> list[dict]`：
+所有 `extract/*.py` 导出 `extract(content: str, format: str | None = None) -> list[dict]`；`format` 由调用方（detect 已判定）传入，提取器按需使用（如 `surge.py` 区分 surge/loon），不用则忽略：
 
 | 文件 | 解析格式 |
 |------|----------|
@@ -78,14 +78,15 @@ cd sub2cfg && python3 -m pytest tests/ -v
 
 - **惰性导入**：`sub2cfg.py` 在函数内部 import，避免路径问题和启动开销
 - **跳过不支持的协议**：转换器返回 `None`，`sub2cfg.py` 统计跳过数量并给出警告
-- **区域识别**：节点名中 emoji 国旗字符决定归属区域
+- **区域识别**：节点名中 emoji 国旗字符决定归属区域（`region.py` 统一维护国旗与区域映射）
+- **协议注册表**：`protocol.py` 单一事实来源，提取器与转换器共享协议类型映射
 - **验证独立**：`verify.py` 仅依赖 Python 标准库 + PyYAML，无需 shell 或 pytest
 
 ### 扩展指南
 
-新增订阅格式：`extract/{fmt}.py` → `detect.py` 加检测 → `sub2cfg.py` EXTRACTORS 注册 → spec 文档 → sample 示例
+新增订阅格式：`extract/{fmt}.py` → `detect.py` 加检测 → `detect.py` EXTRACTOR_MODULES 注册 → spec 文档 → sample 示例
 
-新增协议：`convert/to_singbox.py` 加 `convert_{protocol}()` → `sub2cfg.py` `_convert_if_needed()` 加分支 → spec 文档 → convert 文档
+新增协议：`protocol.py` 注册类型映射 → `convert/to_singbox.py` 加 `convert_{protocol}()` 并加入 `_CONVERTERS` → spec 文档 → convert 文档
 
 ## 重要文件路径
 

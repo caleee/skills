@@ -6,6 +6,17 @@ import re
 import base64
 
 
+# 格式标识 -> 提取器模块路径（sub2cfg.py 与 extract/base64.py 共享此注册表）
+EXTRACTOR_MODULES = {
+    'clash': 'extract.clash',
+    'surge': 'extract.surge',
+    'loon': 'extract.surge',
+    'shadowrocket': 'extract.shadowrocket',
+    'base64-uri': 'extract.base64',
+    'sing-box': 'extract.singbox',
+}
+
+
 def _try_base64_decode(content: str) -> str | None:
     """尝试将内容作为 base64 解码，失败返回 None。"""
     stripped = content.strip()
@@ -46,12 +57,12 @@ def detect(content: str) -> str:
 
     # Surge / Loon
     if re.search(r'^\s*\[Proxy\]', content, re.MULTILINE) or re.search(r'^\w+\s*=\s*(http|socks5|ss|trojan|anytls)', content, re.MULTILINE):
-        return _detect_proxy_style(content)
+        return detect_surge_or_loon(content)
 
     return 'unknown'
 
 
-def _detect_proxy_style(content: str) -> str:
+def detect_surge_or_loon(content: str) -> str:
     """区分 Surge 和 Loon：Loon 不支持 udp-relay，因此若内容中完全不含 udp-relay 参数则判定为 Loon。
 
     注意：这是一条启发式规则。如果用户同时提供纯 Surge（不含 udp-relay）和纯 Loon 订阅，

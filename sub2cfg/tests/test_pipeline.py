@@ -108,6 +108,28 @@ class TestPipelineBase64:
         assert len(data['proxies']) >= 1
 
 
+class TestPipelineSingbox:
+    def test_singbox_to_clash(self):
+        result = run_script(os.path.join(SAMPLE_DIR, 'sing-box-subscribe.json'))
+        assert result.returncode == 0
+        data = yaml.safe_load(result.stdout)
+        assert 'proxies' in data
+        assert len(data['proxies']) == 4
+
+    def test_singbox_auto_detect(self):
+        result = run_script(os.path.join(SAMPLE_DIR, 'sing-box-subscribe.json'))
+        assert result.returncode == 0
+
+    def test_singbox_to_singbox(self):
+        result = run_script(os.path.join(SAMPLE_DIR, 'sing-box-subscribe.json'), '-t', 'sing-box', '-g')
+        assert result.returncode == 0
+        data = yaml.safe_load(result.stdout)
+        assert 'outbounds' in data
+        tags = [o.get('tag') for o in data['outbounds']]
+        assert 'DIRECT' in tags
+        assert 'PROXIES' in tags
+
+
 class TestPipelineErrors:
     def test_invalid_format(self):
         result = run_script(os.path.join(SAMPLE_DIR, 'clash-subscribe.yaml'), '-f', 'shadowrocket')

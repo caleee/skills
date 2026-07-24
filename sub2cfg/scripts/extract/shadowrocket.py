@@ -1,5 +1,5 @@
 """
-Shadowrocket / URI 订阅格式提取 — 解析 ss:// trojan:// 等 URI
+Shadowrocket / URI 订阅格式提取 - 解析 ss:// trojan:// 等 URI
 """
 
 import base64
@@ -39,38 +39,6 @@ def _decode_ss_payload(payload: str) -> SsNode | None:
     return _parse_userinfo_hostport(userinfo, hostport)
 
 
-def _parse_ss_uri_sip002(uri: str) -> dict | None:
-    """解析 SIP002 格式: ss://base64(method:password@server:port)#name"""
-    name = _parse_fragment(uri)
-    uri = uri.split('#')[0] if '#' in uri else uri
-    payload = uri[5:]
-
-    result = _decode_ss_payload(payload)
-    if not result:
-        return None
-    if not name:
-        name = f'{result.server}:{result.port}'
-    return _make_ss_node(name, result)
-
-
-def _parse_ss_uri_legacy(uri: str) -> dict | None:
-    """解析旧格式 ss://method:password@server:port#name（明文，非 base64 编码）。"""
-    name = _parse_fragment(uri)
-    uri = uri.split('#')[0] if '#' in uri else uri
-    payload = uri[5:]
-
-    if '@' not in payload:
-        return None
-
-    userinfo, _, hostport = payload.partition('@')
-    ss = _parse_userinfo_hostport(userinfo, hostport)
-    if not ss:
-        return None
-    if not name:
-        name = f'{ss.server}:{ss.port}'
-    return _make_ss_node(name, ss)
-
-
 def _parse_fragment(uri: str) -> str:
     """提取 URI 中的 #fragment 名称。"""
     if '#' in uri:
@@ -78,8 +46,17 @@ def _parse_fragment(uri: str) -> str:
     return ''
 
 
+def _strip_ss_uri(uri: str) -> tuple[str, str]:
+    """提取 ss:// URI 的 fragment 名称和 payload（去掉 ss:// 前缀和 #fragment）。"""
+    name = _parse_fragment(uri)
+    payload = uri.split('#')[0] if '#' in uri else uri
+    return name, payload[5:]  # 去掉 'ss://' 前缀
+
+
 def _make_ss_node(name: str, ss: SsNode) -> dict:
-    """构造 Clash 格式 SS 节点。"""
+    """构造 Clash 格式 SS 节点；无 name 时回退 server:port。"""
+    if not name:
+        name = f'{ss.server}:{ss.port}'
     return {
         'name': name,
         'type': 'ss',
@@ -88,6 +65,27 @@ def _make_ss_node(name: str, ss: SsNode) -> dict:
         'cipher': ss.method,
         'password': ss.password,
     }
+
+
+def _parse_ss_uri_sip002(uri: str) -> dict | None:
+    """解析 SIP002 格式: ss://base64(method:password@server:port)#name"""
+    name, payload = _strip_ss_uri(uri)
+    result = _decode_ss_payload(payload)
+    if not result:
+        return None
+    return _make_ss_node(name, result)
+
+
+def _parse_ss_uri_legacy(uri: str) -> dict | None:
+    """解析旧格式 ss://method:password@server:port#name（明文，非 base64 编码）。"""
+    name, payload = _strip_ss_uri(uri)
+    if '@' not in payload:
+        return None
+    userinfo, _, hostport = payload.partition('@')
+    result = _parse_userinfo_hostport(userinfo, hostport)
+    if not result:
+        return None
+    return _make_ss_node(name, result)
 
 
 def _parse_ss_uri(uri: str) -> dict | None:
@@ -130,7 +128,7 @@ def _parse_trojan_uri(uri: str) -> dict | None:
     return node
 
 
-def extract(content: str) -> list:
+def extract(content: str, format: str | None = None) -> list:
     """从 URI 格式订阅文本中提取代理节点列表。"""
     nodes = []
     for line in content.splitlines():

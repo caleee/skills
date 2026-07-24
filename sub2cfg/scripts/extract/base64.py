@@ -1,11 +1,12 @@
 """
-Base64 编码订阅提取 — 解码后递归检测格式并分派
+Base64 编码订阅提取 - 解码后递归检测格式并分派
 """
 
 import base64
+import importlib
 
 
-def extract(content: str) -> list:
+def extract(content: str, format: str | None = None) -> list:
     """Base64 解码后递归分派到对应 extractor。"""
     stripped = content.strip()
     if not stripped:
@@ -16,12 +17,15 @@ def extract(content: str) -> list:
     except Exception:
         return []
 
-    from extract.shadowrocket import extract as extract_shadowrocket
-    from extract.clash import extract as extract_clash
-    from detect import detect
-
-    # detect() 会再次扫描文本，但仅为确定格式，无需额外解码
+    from detect import detect, EXTRACTOR_MODULES
     fmt = detect(decoded)
-    if fmt == 'clash':
-        return extract_clash(decoded)
+
+    # 分派到对应格式的提取器（复用 EXTRACTOR_MODULES 注册表，避免重复维护映射）
+    module_path = EXTRACTOR_MODULES.get(fmt)
+    if module_path:
+        mod = importlib.import_module(module_path)
+        return mod.extract(decoded, fmt)
+
+    # 未知格式（detect 未识别为已知格式）：回退到 shadowrocket URI 解析
+    from extract.shadowrocket import extract as extract_shadowrocket
     return extract_shadowrocket(decoded)

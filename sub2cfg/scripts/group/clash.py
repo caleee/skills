@@ -2,7 +2,7 @@
 Clash 策略组生成
 """
 
-from _group_builder import build_base_groups
+from group_builder import build_base_groups
 
 # 默认服务策略组：这些是用户常用的特定服务分类，与按区域分组互补。
 # 新增或移除服务时只需修改此处列表。

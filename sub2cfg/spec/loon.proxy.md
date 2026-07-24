@@ -26,7 +26,7 @@ Loon 的代理配置位于 `[Proxy]` 段落中，每行一个代理节点：
 name = protocol, server, port, key=value, key=value, ...
 ```
 
-与 Surge 格式基本相同，但 Loon 不支持 `udp-relay` 参数。
+与 Surge 格式基本相同，但 Loon 不支持 `udp-relay` 参数；提取器会忽略该参数（即使出现也不解析为字段）。
 
 ## 通用参数
 

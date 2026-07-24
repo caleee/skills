@@ -117,6 +117,9 @@ def main():
     with open(os.path.join(SAMPLE_DIR, 'loon-subscribe.conf'), 'r', encoding='utf-8') as f:
         check('detect: Loon', detect(f.read()) == 'loon')
 
+    with open(os.path.join(SAMPLE_DIR, 'sing-box-subscribe.json'), 'r', encoding='utf-8') as f:
+        check('detect: Sing-box', detect(f.read()) == 'sing-box')
+
     check('detect: 未知格式', detect('random text') == 'unknown')
 
     # ---- 3. extractor 单元测试 ----
@@ -256,14 +259,23 @@ proxies:
     n = node_count_from_yaml(r.stdout)
     check(f'Base64 节点数: {n}', n == 2)
 
-    # 5.6 输出文件
+    # 5.6 Sing-box
+    r = run_sub2cfg(os.path.join(SAMPLE_DIR, 'sing-box-subscribe.json'))
+    check('Sing-box 自动检测', r.returncode == 0)
+    n = node_count_from_yaml(r.stdout)
+    check(f'Sing-box 节点数: {n}', n == 4)
+
+    r = run_sub2cfg(os.path.join(SAMPLE_DIR, 'sing-box-subscribe.json'), '-t', 'sing-box', '-g')
+    check('Sing-box -> Sing-box (带组)', r.returncode == 0)
+
+    # 5.7 输出文件
     tmp = os.path.join(tempfile.gettempdir(), 'sub2cfg-test-output.yaml')
     r = run_sub2cfg(os.path.join(SAMPLE_DIR, 'clash-subscribe.yaml'), '-o', tmp)
     check('输出文件', r.returncode == 0 and os.path.exists(tmp))
     if os.path.exists(tmp):
         os.unlink(tmp)
 
-    # 5.7 错误处理
+    # 5.8 错误处理
     r = run_sub2cfg('/nonexistent/file.yaml')
     check('错误: 文件不存在', r.returncode == 1 and '文件不存在' in r.stderr)
 

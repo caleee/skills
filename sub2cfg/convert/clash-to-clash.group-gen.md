@@ -19,6 +19,7 @@ Clash 格式的节点列表（YAML 数组），从订阅 YAML 的 `proxies:` 段
 
 1. 过滤掉非代理节点（name 不包含 emoji 国旗的节点，如 "当前流量"、"到期时间"）
 2. 根据 name 中的 emoji 国旗前缀识别区域
+3. 无法识别区域（国旗不在 REGION_MAP 中）的节点仍加入 PROXIES 主选择组，但不归入任何区域组，并输出 stderr 警告
 
 ## 区域映射
 
@@ -46,7 +47,7 @@ Clash 格式的节点列表（YAML 数组），从订阅 YAML 的 `proxies:` 段
 
 ### 2. 服务策略组（select）
 
-标准服务组模板，每个包含：`DIRECT` + `PROXIES` + 各区域组名。
+标准服务组模板，每个包含：`DIRECT` + `PROXIES` + 各区域组名。服务组列表在 `group/clash.py` 的 `DEFAULT_SERVICE_GROUPS` 中定义，可按需增删。
 
 Standard service groups:
 - `DNS` — 用于 DNS 解析的路由

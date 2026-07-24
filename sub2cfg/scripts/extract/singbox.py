@@ -1,18 +1,20 @@
 """
-Sing-box JSON 格式提取 — 从 outbounds 中提取代理节点
+Sing-box JSON 格式提取 - 从 outbounds 中提取代理节点
 """
 
 import json
+
+from idle_session_fields import SINGBOX_TO_CLASH_IDLE_FIELDS, convert_idle_fields
+from protocol import SINGBOX_TO_CLASH_TYPE
 
 
 def _singbox_to_clash(outbound: dict) -> dict | None:
     """将单个 Sing-box 出站转为 Clash 格式节点。"""
     out_type = outbound.get('type', '')
-    if out_type not in ('anytls', 'shadowsocks', 'trojan'):
+    if out_type not in SINGBOX_TO_CLASH_TYPE:
         return None
 
-    type_map = {'shadowsocks': 'ss'}
-    clash_type = type_map.get(out_type, out_type)
+    clash_type = SINGBOX_TO_CLASH_TYPE[out_type]
 
     node = {
         'name': outbound.get('tag', ''),
@@ -39,16 +41,13 @@ def _singbox_to_clash(outbound: dict) -> dict | None:
         if utls.get('fingerprint'):
             node['client-fingerprint'] = utls['fingerprint']
 
-    # 空闲会话字段 (anytls): Sing-box 下划线命名 → Clash 连字符命名
-    from _idle_session_fields import SINGBOX_TO_CLASH_IDLE_FIELDS
-    for sb_key, clash_key in SINGBOX_TO_CLASH_IDLE_FIELDS:
-        if sb_key in outbound:
-            node[clash_key] = outbound[sb_key]
+    # 空闲会话字段 (anytls): Sing-box 下划线命名 duration(如 "30s") -> Clash 连字符命名 int(秒)
+    convert_idle_fields(outbound, node, SINGBOX_TO_CLASH_IDLE_FIELDS)
 
     return node
 
 
-def extract(content: str) -> list:
+def extract(content: str, format: str | None = None) -> list:
     """从 Sing-box JSON 配置中提取代理节点列表。"""
     try:
         data = json.loads(content)

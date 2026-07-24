@@ -1,0 +1,47 @@
+{
+  "outbounds": [
+    {
+      "type": "anytls",
+      "tag": "🇭🇰 香港 01",
+      "server": "hk-01.example.com",
+      "server_port": 443,
+      "password": "hkpass123",
+      "idle_session_check_interval": "30s",
+      "idle_session_timeout": "30s",
+      "min_idle_session": 0,
+      "tls": {
+        "enabled": true,
+        "server_name": "hk-01.example.com",
+        "insecure": true,
+        "alpn": ["h2"],
+        "utls": {"enabled": true, "fingerprint": "chrome"}
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇭🇰 香港 02",
+      "server": "hk-02.example.com",
+      "server_port": 444,
+      "password": "hkpass123",
+      "tls": {"enabled": true, "server_name": "hk-02.example.com"}
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "🇺🇸 美国 01",
+      "server": "us-01.example.com",
+      "server_port": 443,
+      "method": "chacha20-ietf-poly1305",
+      "password": "uspass456"
+    },
+    {
+      "type": "trojan",
+      "tag": "🇯🇵 日本 01",
+      "server": "jp-01.example.com",
+      "server_port": 443,
+      "password": "jppass789",
+      "tls": {"enabled": true, "server_name": "jp-01.example.com", "insecure": false}
+    },
+    {"type": "direct", "tag": "DIRECT"},
+    {"type": "selector", "tag": "PROXIES", "outbounds": ["🇭🇰 香港 01"]}
+  ]
+}

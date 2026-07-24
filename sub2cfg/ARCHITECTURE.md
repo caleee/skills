@@ -98,7 +98,8 @@ sub2cfg 是一个订阅链接转代理配置工具，核心功能是从不同格
 | 标识 | 对应格式 |
 |------|----------|
 | `clash` | Clash / Mihomo YAML |
-| `surge` | Surge / Loon [Proxy] 段落 |
+| `surge` | Surge [Proxy] 段落 |
+| `loon` | Loon [Proxy] 段落（无 udp-relay） |
 | `shadowrocket` | Shadowrocket URI (ss:// trojan://) |
 | `base64-uri` | Base64 编码内容 |
 | `sing-box` | Sing-box JSON |
@@ -106,7 +107,7 @@ sub2cfg 是一个订阅链接转代理配置工具，核心功能是从不同格
 
 ### 提取层: `extract/*.py`
 
-每个文件对应一种订阅格式，统一导出 `extract(content: str) -> list[dict]`。
+每个文件对应一种订阅格式，统一导出 `extract(content: str, format: str | None = None) -> list[dict]`。`format` 由调用方（`detect.py` 已判定）传入，避免提取器重复嗅探。
 
 | 文件 | 输入格式 | 解析策略 |
 |------|----------|----------|
@@ -126,7 +127,7 @@ convert_ss(clash_node) -> singbox_outbound | None       # ss
 convert_trojan(clash_node) -> singbox_outbound | None   # trojan
 ```
 
-`sub2cfg.py` 中的 `_convert_if_needed()` 根据 `node["type"]` 分派到对应的转换器。
+`convert/to_singbox.py` 中的 `convert()` 通过 `_CONVERTERS` 字典按 `node["type"]` 分派到对应的转换器。
 
 ### 组生成层: `group/*.py`
 
@@ -142,7 +143,7 @@ convert_trojan(clash_node) -> singbox_outbound | None   # trojan
 主入口，编排整个流水线。
 
 ```
-load_content() → detect() → EXTRACTORS[fmt]() → _convert_if_needed() → [build_groups()] → yaml.dump()
+load_content() → detect() → EXTRACTOR_MODULES[fmt].extract() → convert() → [build_groups()] → yaml.dump()
 ```
 
 ---
@@ -186,7 +187,7 @@ load_content() → detect() → EXTRACTORS[fmt]() → _convert_if_needed() → [
 
 1. 在 `extract/` 下创建 `{format}.py`，实现 `extract(content: str) -> list[dict]`
 2. 在 `detect.py` 的 `detect()` 函数中增加格式检测逻辑
-3. 在 `sub2cfg.py` 的 `EXTRACTORS` 字典中注册
+3. 在 `detect.py` 的 `EXTRACTOR_MODULES` 字典中注册
 4. 在 `spec/` 下创建格式定义文档
 5. 在 `sample/` 下创建示例文件
 6. 更新 `registry.md` 的订阅格式提取表
@@ -194,7 +195,7 @@ load_content() → detect() → EXTRACTORS[fmt]() → _convert_if_needed() → [
 ### 新增协议
 
 1. 在 `convert/to_singbox.py` 中新增 `convert_{protocol}()` 函数
-2. 在 `sub2cfg.py` 的 `_convert_if_needed()` 中增加分支
+2. 在 `protocol.py` 注册类型映射，在 `convert/to_singbox.py` 的 `_CONVERTERS` 中增加分派
 3. 在 `spec/` 下创建各平台的协议格式定义
 4. 在 `convert/` 下创建协议转换规则文档
 5. 更新 `registry.md` 的格式定义表和转换规则表
@@ -241,19 +242,20 @@ sub2cfg/
 │   ├── sing-box.outbound-groups.md
 │   ├── surge.proxy.md
 │   ├── loon.proxy.md
-│   └── shadowrocket.md
+│   └── shadowrocket.uri.md
 ├── convert/                   # 转换规则文档
 │   ├── clash-to-sing-box.anytls.md
 │   ├── clash-to-sing-box.ss.md
 │   ├── clash-to-sing-box.trojan.md
 │   ├── clash-to-sing-box.group-gen.md
-│   └── clash.group-gen.md
+│   └── clash-to-clash.group-gen.md
 ├── sample/                    # 示例数据
 │   ├── clash-subscribe.yaml
 │   ├── surge-subscribe.conf
 │   ├── shadowrocket-uri.txt
 │   ├── loon-subscribe.conf
-│   └── base64-uri.txt
+│   ├── base64-uri.txt
+│   └── sing-box-subscribe.json
 └── tests/                     # 单元测试
     ├── test_detect.py
     ├── test_extract.py

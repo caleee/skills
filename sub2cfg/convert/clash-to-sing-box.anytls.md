@@ -24,9 +24,9 @@ Clash 的 anytls 格式是平铺的 YAML 字段，Sing-box 使用嵌套 JSON 结
 | `udp` | 忽略 | Sing-box 由路由控制 |
 | `tfo` | 忽略 | Sing-box 由 dial 字段控制 |
 | `name-cert-verify` | 忽略 | Sing-box 无对应字段 |
-| `idle-session-check-interval` | `idle_session_check_interval` | 字段名变为下划线，值单位不变 |
+| `idle-session-check-interval` | `idle_session_check_interval` | 字段名变为下划线；Clash int(秒) -> Sing-box duration 字符串(如 `30` -> `"30s"`) |
 | `idle-session-timeout` | `idle_session_timeout` | 同上 |
-| `min-idle-session` | `min_idle_session` | 同上 |
+| `min-idle-session` | `min_idle_session` | 字段名变为下划线；两边均为 int，直接映射 |
 
 ## 默认值补充
 

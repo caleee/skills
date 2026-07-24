@@ -2,8 +2,12 @@
 从 Clash YAML proxies 段提取并过滤节点
 """
 
-# 用于识别区域节点的 emoji 国旗
-FLAG_EMOJIS = set('🇭🇰🇺🇸🇯🇵🇸🇬🇨🇳🇬🇧🇩🇪🇫🇷🇰🇷🇮🇳🇨🇦🇦🇺🇷🇺🇧🇷🇳🇱🇸🇪🇳🇴🇫🇮🇩🇰🇵🇱🇨🇿🇭🇺🇷🇴🇹🇷🇮🇱🇦🇪🇿🇦🇲🇽🇦🇷🇨🇱🇵🇪🇵🇭')
+from region import ALL_FLAGS
+
+# 用于过滤非代理节点的 emoji 国旗集合（来源 region.ALL_FLAGS）。
+# ALL_FLAGS（30+ 国旗，用于节点过滤）是 REGION_MAP（5 区域，用于分组）的超集，
+# 二者用途不同，本就不同步：新增过滤国旗改 ALL_FLAGS，新增分组区域改 REGION_MAP。
+FLAG_EMOJIS = ALL_FLAGS
 
 
 def is_proxy_node(node) -> bool:
@@ -24,7 +28,7 @@ def filter_proxies(proxies: list) -> list:
     return [p for p in proxies if is_proxy_node(p)]
 
 
-def extract(content: str) -> list:
+def extract(content: str, format: str | None = None) -> list:
     """从原始 YAML 文本中提取 Clash 代理节点。"""
     import yaml
     try:

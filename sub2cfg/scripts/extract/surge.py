@@ -1,13 +1,6 @@
 """
-Surge / Loon 订阅格式提取 — 解析 [Proxy] 段落
+Surge / Loon 订阅格式提取 - 解析 [Proxy] 段落
 """
-
-import re
-
-
-def _is_loon(content: str) -> bool:
-    """判断内容是否为 Loon 格式：不含 udp-relay 参数。"""
-    return not bool(re.search(r'udp-relay\s*=', content))
 
 
 def _parse_kv_pairs(pairs: list[str], protocol: str) -> dict:
@@ -21,7 +14,7 @@ def _parse_kv_pairs(pairs: list[str], protocol: str) -> dict:
         v = v.strip()
         if not k:
             continue
-        # Surge → Clash 字段映射
+        # Surge -> Clash 字段映射
         if k == 'encrypt-method':
             fields['cipher'] = v
         elif k == 'udp-relay':
@@ -86,12 +79,18 @@ def _parse_line(line: str, protocol: str) -> dict | None:
     return node
 
 
-def extract(content: str) -> list:
-    """从 Surge/Loon 配置文本中提取代理节点列表。"""
-    protocol = 'loon' if _is_loon(content) else 'surge'
+def extract(content: str, format: str | None = None) -> list:
+    """从 Surge/Loon 配置文本中提取代理节点列表。
+
+    format 由调用方（detect.py 已判定）传入 'surge' 或 'loon'；
+    未提供时回退到 detect._detect_proxy_style 共享同一嗅探逻辑。
+    """
+    if format is None:
+        from detect import detect_surge_or_loon
+        format = detect_surge_or_loon(content)
     nodes = []
     for line in content.splitlines():
-        node = _parse_line(line, protocol)
+        node = _parse_line(line, format)
         if node:
             nodes.append(node)
     return nodes

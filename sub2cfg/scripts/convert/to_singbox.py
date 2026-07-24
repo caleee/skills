@@ -1,8 +1,9 @@
 """
-Clash → Sing-box 节点转换
+Clash -> Sing-box 节点转换
 """
 
-from _idle_session_fields import CLASH_TO_SINGBOX_IDLE_FIELDS
+from idle_session_fields import CLASH_TO_SINGBOX_IDLE_FIELDS, convert_idle_fields
+from protocol import SUPPORTED_PROTOCOLS
 
 
 _CONVERTERS = {
@@ -10,6 +11,12 @@ _CONVERTERS = {
     'ss': 'convert_ss',
     'trojan': 'convert_trojan',
 }
+
+# 确保 _CONVERTERS 覆盖所有已注册协议（protocol.py 为单一事实来源）
+if set(_CONVERTERS) != set(SUPPORTED_PROTOCOLS):
+    raise RuntimeError(
+        '_CONVERTERS 必须覆盖 protocol.SUPPORTED_PROTOCOLS 中的所有协议'
+    )
 
 
 def _build_tls(clash_node: dict) -> dict:
@@ -41,10 +48,8 @@ def convert_anytls(clash_node: dict) -> dict | None:
         'tls': _build_tls(clash_node),
     }
 
-    # 空闲会话字段: Clash 连字符命名 → Sing-box 下划线命名
-    for clash_key, sb_key in CLASH_TO_SINGBOX_IDLE_FIELDS:
-        if clash_key in clash_node:
-            outbound[sb_key] = clash_node[clash_key]
+    # 空闲会话字段: Clash 连字符命名 int(秒) -> Sing-box 下划线命名 duration(如 "30s")
+    convert_idle_fields(clash_node, outbound, CLASH_TO_SINGBOX_IDLE_FIELDS)
 
     return outbound
 

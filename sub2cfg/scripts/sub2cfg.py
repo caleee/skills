@@ -18,16 +18,6 @@ def load_content(path):
         sys.exit(1)
 
 
-EXTRACTOR_MODULES = {
-    'clash': 'extract.clash',
-    'surge': 'extract.surge',
-    'loon': 'extract.surge',
-    'shadowrocket': 'extract.shadowrocket',
-    'base64-uri': 'extract.base64',
-    'sing-box': 'extract.singbox',
-}
-
-
 def main():
     import yaml
     parser = argparse.ArgumentParser(description='订阅链接转代理配置')
@@ -57,6 +47,7 @@ def main():
     print(f'[sub2cfg] 检测到格式: {fmt}', file=sys.stderr)
 
     # 3. 提取节点
+    from detect import EXTRACTOR_MODULES
     module_path = EXTRACTOR_MODULES.get(fmt)
     if not module_path:
         print(f'错误: 不支持从 {fmt} 格式提取', file=sys.stderr)
@@ -64,7 +55,7 @@ def main():
 
     try:
         mod = importlib.import_module(module_path)
-        nodes = mod.extract(content)
+        nodes = mod.extract(content, fmt)
     except Exception as e:
         print(f'错误: 节点提取失败 {e}', file=sys.stderr)
         sys.exit(1)
@@ -76,11 +67,11 @@ def main():
 
     # 4. 转换格式
     if args.target == 'sing-box':
+        from convert.to_singbox import convert
         outbounds = []
         skipped = 0
         for node in nodes:
             try:
-                from convert.to_singbox import convert
                 outbound = convert(node)
             except Exception as e:
                 name = node.get('name', '?')
