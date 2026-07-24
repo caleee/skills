@@ -32,9 +32,9 @@ cd sub2cfg && python3 -m pytest tests/ -v
 订阅源 (raw text)
   → detect.py 检测格式
   → extract/{format}.py 提取为统一 Clash 格式节点列表
-  → convert/to_singbox.py 按协议转换 (anytls/ss/trojan)
+  → convert/to_singbox.py 按协议转换 (anytls/ss/trojan/hysteria2)
   → [可选] group/{target}.py 生成策略组
-  → yaml.dump 输出
+  → 输出 (sing-box: JSON, clash: YAML)
 ```
 
 ### 统一中间格式
@@ -94,7 +94,7 @@ cd sub2cfg && python3 -m pytest tests/ -v
 - `scripts/sub2cfg.py` — 主入口（编排流水线）
 - `scripts/detect.py` — 格式检测
 - `scripts/extract/` — 提取器（5 个格式）
-- `scripts/convert/to_singbox.py` — 转换器（3 个协议）
+- `scripts/convert/to_singbox.py` — 转换器（4 个协议）
 - `scripts/group/` — 策略组生成（2 个平台）
 - `verify.py` — 验证脚本
 - `ARCHITECTURE.md` — 详细架构设计文档

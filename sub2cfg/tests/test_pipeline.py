@@ -5,6 +5,7 @@ import sys
 import os
 import yaml
 import tempfile
+import json
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
 
@@ -25,7 +26,7 @@ class TestPipelineClash:
         result = run_script(os.path.join(SAMPLE_DIR, 'clash-subscribe.yaml'), '-t', 'sing-box', '-g')
         assert result.returncode == 0
         assert '提取到' in result.stderr
-        data = yaml.safe_load(result.stdout)
+        data = json.loads(result.stdout)
         assert 'outbounds' in data
         assert len(data['outbounds']) > 0
 
@@ -60,7 +61,7 @@ class TestPipelineSurge:
     def test_surge_to_singbox(self):
         result = run_script(os.path.join(SAMPLE_DIR, 'surge-subscribe.conf'), '-f', 'surge', '-t', 'sing-box', '-g')
         assert result.returncode == 0
-        data = yaml.safe_load(result.stdout)
+        data = json.loads(result.stdout)
         assert 'outbounds' in data
         tags = [o.get('tag') for o in data['outbounds']]
         assert 'DIRECT' in tags
@@ -123,7 +124,7 @@ class TestPipelineSingbox:
     def test_singbox_to_singbox(self):
         result = run_script(os.path.join(SAMPLE_DIR, 'sing-box-subscribe.json'), '-t', 'sing-box', '-g')
         assert result.returncode == 0
-        data = yaml.safe_load(result.stdout)
+        data = json.loads(result.stdout)
         assert 'outbounds' in data
         tags = [o.get('tag') for o in data['outbounds']]
         assert 'DIRECT' in tags

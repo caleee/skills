@@ -2,6 +2,8 @@
 Clash -> Sing-box 节点转换
 """
 
+import re
+
 from idle_session_fields import CLASH_TO_SINGBOX_IDLE_FIELDS, convert_idle_fields
 from protocol import SUPPORTED_PROTOCOLS
 
@@ -10,6 +12,7 @@ _CONVERTERS = {
     'anytls': 'convert_anytls',
     'ss': 'convert_ss',
     'trojan': 'convert_trojan',
+    'hysteria2': 'convert_hysteria2',
 }
 
 # 确保 _CONVERTERS 覆盖所有已注册协议（protocol.py 为单一事实来源）
@@ -89,6 +92,48 @@ def convert_trojan(clash_node: dict) -> dict | None:
         'password': clash_node.get('password', ''),
         'tls': _build_tls(clash_node),
     }
+
+
+def _parse_bandwidth(value) -> int | None:
+    """从 Clash 带宽字符串（如 "30 Mbps"）提取数字（30）；无法解析返回 None。"""
+    if isinstance(value, int):
+        return value
+    m = re.search(r'\d+', str(value))
+    return int(m.group()) if m else None
+
+
+def convert_hysteria2(clash_node: dict) -> dict | None:
+    """将单个 Clash hysteria2 节点转为 Sing-box 出站格式。"""
+    if clash_node.get('type') != 'hysteria2':
+        return None
+
+    outbound = {
+        'type': 'hysteria2',
+        'tag': clash_node.get('name', ''),
+        'server': clash_node.get('server', ''),
+        'server_port': clash_node.get('port', 443),
+        'password': clash_node.get('password', ''),
+        'tls': _build_tls(clash_node),
+    }
+
+    # obfs: Clash obfs=salamander + obfs-password -> sing-box obfs 对象
+    if clash_node.get('obfs'):
+        obfs = {'type': clash_node['obfs']}
+        if clash_node.get('obfs-password'):
+            obfs['password'] = clash_node['obfs-password']
+        outbound['obfs'] = obfs
+
+    # 带宽: Clash "30 Mbps" -> sing-box int 30；无法解析时省略字段
+    if clash_node.get('up') is not None:
+        bw = _parse_bandwidth(clash_node['up'])
+        if bw is not None:
+            outbound['up_mbps'] = bw
+    if clash_node.get('down') is not None:
+        bw = _parse_bandwidth(clash_node['down'])
+        if bw is not None:
+            outbound['down_mbps'] = bw
+
+    return outbound
 
 
 def convert(node: dict) -> dict | None:

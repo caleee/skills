@@ -8,6 +8,7 @@ sub2cfg 验证脚本 — 测试所有模块和流水线
 """
 import sys
 import os
+import json
 import yaml
 import tempfile
 import subprocess
@@ -53,17 +54,29 @@ def check(description, ok):
         FAIL += 1
 
 
-def node_count_from_yaml(yaml_text):
-    """统计 output YAML 中的节点数。"""
+def _is_json(text):
+    """验证文本是否为合法 JSON。"""
     try:
-        data = yaml.safe_load(yaml_text)
+        json.loads(text)
+        return True
+    except (json.JSONDecodeError, ValueError):
+        return False
+
+
+def node_count(text):
+    """统计输出中的节点数（sing-box 输出 JSON，clash 输出 YAML）。"""
+    try:
+        try:
+            data = json.loads(text)
+        except (json.JSONDecodeError, ValueError):
+            data = yaml.safe_load(text)
         if not data:
             return 0
         if 'proxies' in data:
             return len(data['proxies'])
         if 'outbounds' in data:
             # 只统计代理类型 outbound，跳过 group/direct
-            return sum(1 for o in data['outbounds'] if o.get('type') in ('anytls', 'shadowsocks', 'trojan'))
+            return sum(1 for o in data['outbounds'] if o.get('type') in ('anytls', 'shadowsocks', 'trojan', 'hysteria2'))
         return 0
     except Exception as e:
         print(f'  [警告] node_count 解析失败: {e}', file=sys.stderr)
@@ -218,24 +231,37 @@ proxies:
     check('Trojan 转换: 基本字段', outbound is not None and outbound['type'] == 'trojan' and outbound['tls']['enabled'] is True)
     check('Trojan 转换: 跳过非 trojan', convert_trojan({'type': 'ss'}) is None)
 
+    # hysteria2
+    from convert.to_singbox import convert_hysteria2
+    node = {'name': 'n1', 'type': 'hysteria2', 'server': 'ex.com', 'port': 443, 'password': 'p',
+            'obfs': 'salamander', 'obfs-password': 'opass', 'up': '30 Mbps', 'down': '200 Mbps',
+            'sni': 'ex.com', 'client-fingerprint': 'chrome'}
+    outbound = convert_hysteria2(node)
+    check('hysteria2 转换: 基本字段', outbound is not None and outbound['type'] == 'hysteria2')
+    check('hysteria2 转换: obfs', outbound['obfs'] == {'type': 'salamander', 'password': 'opass'})
+    check('hysteria2 转换: 带宽', outbound['up_mbps'] == 30 and outbound['down_mbps'] == 200)
+    check('hysteria2 转换: tls utls', outbound['tls']['utls']['fingerprint'] == 'chrome')
+    check('hysteria2 转换: 跳过非 hysteria2', convert_hysteria2({'type': 'ss'}) is None)
+
     # ---- 5. 端到端流水线测试 ----
     section('5. 端到端测试')
 
     # 5.1 Clash
     r = run_sub2cfg(os.path.join(SAMPLE_DIR, 'clash-subscribe.yaml'), '-g')
     check('Clash → Clash (带组)', r.returncode == 0 and '提取到' in r.stderr)
-    n = node_count_from_yaml(r.stdout)
+    n = node_count(r.stdout)
     check(f'Clash 节点数: {n}', n == 56)
 
     r = run_sub2cfg(os.path.join(SAMPLE_DIR, 'clash-subscribe.yaml'), '-t', 'sing-box', '-g')
     check('Clash → Sing-box (带组)', r.returncode == 0 and '提取到' in r.stderr)
-    n = node_count_from_yaml(r.stdout)
+    check('Sing-box 输出为 JSON', _is_json(r.stdout))
+    n = node_count(r.stdout)
     check(f'Sing-box 节点数: {n}', n == 56)
 
     # 5.2 Surge
     r = run_sub2cfg(os.path.join(SAMPLE_DIR, 'surge-subscribe.conf'))
     check('Surge 自动检测', r.returncode == 0)
-    n = node_count_from_yaml(r.stdout)
+    n = node_count(r.stdout)
     check(f'Surge 节点数: {n}', n == 8)
 
     r = run_sub2cfg(os.path.join(SAMPLE_DIR, 'surge-subscribe.conf'), '-f', 'surge', '-t', 'sing-box', '-g')
@@ -244,25 +270,25 @@ proxies:
     # 5.3 Shadowrocket
     r = run_sub2cfg(os.path.join(SAMPLE_DIR, 'shadowrocket-uri.txt'))
     check('Shadowrocket 自动检测', r.returncode == 0)
-    n = node_count_from_yaml(r.stdout)
+    n = node_count(r.stdout)
     check(f'Shadowrocket 节点数: {n}', n == 4)
 
     # 5.4 Loon
     r = run_sub2cfg(os.path.join(SAMPLE_DIR, 'loon-subscribe.conf'))
     check('Loon 自动检测', r.returncode == 0)
-    n = node_count_from_yaml(r.stdout)
+    n = node_count(r.stdout)
     check(f'Loon 节点数: {n}', n == 5)
 
     # 5.5 Base64
     r = run_sub2cfg(os.path.join(SAMPLE_DIR, 'base64-uri.txt'), '-f', 'base64-uri')
     check('Base64-URI 提取', r.returncode == 0)
-    n = node_count_from_yaml(r.stdout)
+    n = node_count(r.stdout)
     check(f'Base64 节点数: {n}', n == 2)
 
     # 5.6 Sing-box
     r = run_sub2cfg(os.path.join(SAMPLE_DIR, 'sing-box-subscribe.json'))
     check('Sing-box 自动检测', r.returncode == 0)
-    n = node_count_from_yaml(r.stdout)
+    n = node_count(r.stdout)
     check(f'Sing-box 节点数: {n}', n == 4)
 
     r = run_sub2cfg(os.path.join(SAMPLE_DIR, 'sing-box-subscribe.json'), '-t', 'sing-box', '-g')

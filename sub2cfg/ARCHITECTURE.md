@@ -67,7 +67,7 @@ sub2cfg 是一个订阅链接转代理配置工具，核心功能是从不同格
 ```python
 {
     "name": "🇭🇰 香港 01",     # 节点名称（含 emoji 区域标识）
-    "type": "ss",              # 协议类型: ss / trojan / anytls
+    "type": "ss",              # 协议类型: ss / trojan / anytls / hysteria2
     "server": "example.com",   # 服务器地址
     "port": 443,               # 服务器端口
     "password": "xxx",         # 密码
@@ -125,6 +125,7 @@ sub2cfg 是一个订阅链接转代理配置工具，核心功能是从不同格
 convert_anytls(clash_node) -> singbox_outbound | None  # s
 convert_ss(clash_node) -> singbox_outbound | None       # ss
 convert_trojan(clash_node) -> singbox_outbound | None   # trojan
+convert_hysteria2(clash_node) -> singbox_outbound | None # hysteria2
 ```
 
 `convert/to_singbox.py` 中的 `convert()` 通过 `_CONVERTERS` 字典按 `node["type"]` 分派到对应的转换器。

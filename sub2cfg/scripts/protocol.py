@@ -9,6 +9,7 @@ CLASH_TO_SINGBOX_TYPE = {
     'ss': 'shadowsocks',
     'trojan': 'trojan',
     'anytls': 'anytls',
+    'hysteria2': 'hysteria2',
 }
 
 # Sing-box 出站类型 -> Clash 协议类型（由正向映射派生）

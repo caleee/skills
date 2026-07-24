@@ -11,7 +11,7 @@ description: 订阅链接转代理配置 — 拉取订阅、提取节点、格�
 
 支持订阅格式：Clash YAML、Surge、Loon、Shadowrocket URI、Base64 编码、Sing-box JSON
 
-支持协议：Shadowsocks (ss)、Trojan、AnyTLS
+支持协议：Shadowsocks (ss)、Trojan、AnyTLS、Hysteria2
 
 支持目标平台：Clash / Mihomo、Sing-box
 

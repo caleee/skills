@@ -26,9 +26,11 @@ name: sub2cfg 模块清单
 | spec/clash.anytls.md | Clash (Mihomo) | anytls | https://wiki.metacubex.one/config/proxies/anytls/ |
 | spec/clash.ss.md | Clash (Mihomo) | ss | https://wiki.metacubex.one/config/proxies/ss/ |
 | spec/clash.trojan.md | Clash (Mihomo) | trojan | https://wiki.metacubex.one/config/proxies/trojan/ |
+| spec/clash.hysteria2.md | Clash (Mihomo) | hysteria2 | https://wiki.metacubex.one/config/proxies/hysteria2/ |
 | spec/sing-box.anytls.md | Sing-box | anytls | https://sing-box.sagernet.org/configuration/outbound/anytls/ |
 | spec/sing-box.ss.md | Sing-box | ss | https://sing-box.sagernet.org/configuration/outbound/shadowsocks/ |
 | spec/sing-box.trojan.md | Sing-box | trojan | https://sing-box.sagernet.org/configuration/outbound/trojan/ |
+| spec/sing-box.hysteria2.md | Sing-box | hysteria2 | https://sing-box.sagernet.org/configuration/outbound/hysteria2/ |
 
 ### 订阅格式
 
@@ -54,6 +56,7 @@ name: sub2cfg 模块清单
 | convert/clash-to-sing-box.anytls.md | Clash | Sing-box | anytls |
 | convert/clash-to-sing-box.ss.md | Clash | Sing-box | ss |
 | convert/clash-to-sing-box.trojan.md | Clash | Sing-box | trojan |
+| convert/clash-to-sing-box.hysteria2.md | Clash | Sing-box | hysteria2 |
 
 ### 组生成
 

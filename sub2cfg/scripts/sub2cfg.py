@@ -100,8 +100,12 @@ def main():
             groups = build_groups(nodes)
             result['proxy-groups'] = groups
 
-    # 5. 输出
-    output = yaml.dump(result, allow_unicode=True, default_flow_style=False, sort_keys=False)
+    # 5. 输出（sing-box 用 JSON，clash 用 YAML）
+    if args.target == 'sing-box':
+        import json
+        output = json.dumps(result, ensure_ascii=False, indent=2)
+    else:
+        output = yaml.dump(result, allow_unicode=True, default_flow_style=False, sort_keys=False)
     if args.output:
         with open(args.output, 'w') as f:
             f.write(output)

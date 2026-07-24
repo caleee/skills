@@ -116,3 +116,52 @@ class TestConvertTrojan:
     def test_skip_non_trojan(self):
         from convert.to_singbox import convert_trojan
         assert convert_trojan({'type': 'ss'}) is None
+
+
+class TestConvertHysteria2:
+    def test_convert_hysteria2_basic(self):
+        from convert.to_singbox import convert_hysteria2
+        node = {
+            'name': '🇭🇰 香港 01',
+            'type': 'hysteria2',
+            'server': 'hy2.example.com',
+            'port': 443,
+            'password': 'hy2pass',
+        }
+        result = convert_hysteria2(node)
+        assert result is not None
+        assert result['type'] == 'hysteria2'
+        assert result['tag'] == '🇭🇰 香港 01'
+        assert result['server_port'] == 443
+        assert result['password'] == 'hy2pass'
+        assert result['tls']['enabled'] is True
+
+    def test_convert_hysteria2_obfs_bandwidth(self):
+        from convert.to_singbox import convert_hysteria2
+        node = {
+            'name': 'test',
+            'type': 'hysteria2',
+            'server': 'ex.com',
+            'port': 443,
+            'password': 'p',
+            'obfs': 'salamander',
+            'obfs-password': 'opass',
+            'up': '30 Mbps',
+            'down': '200 Mbps',
+            'sni': 'ex.com',
+            'skip-cert-verify': True,
+            'alpn': ['h3'],
+            'client-fingerprint': 'chrome',
+        }
+        result = convert_hysteria2(node)
+        assert result['obfs'] == {'type': 'salamander', 'password': 'opass'}
+        assert result['up_mbps'] == 30
+        assert result['down_mbps'] == 200
+        assert result['tls']['server_name'] == 'ex.com'
+        assert result['tls']['insecure'] is True
+        assert result['tls']['alpn'] == ['h3']
+        assert result['tls']['utls']['fingerprint'] == 'chrome'
+
+    def test_skip_non_hysteria2(self):
+        from convert.to_singbox import convert_hysteria2
+        assert convert_hysteria2({'type': 'ss'}) is None

@@ -53,7 +53,7 @@ def _parse_line(line: str, protocol: str) -> dict | None:
     server = tokens[1].strip()
     port_str = tokens[2].strip()
 
-    if proto not in ('ss', 'trojan', 'anytls', 'http', 'socks5', 'vmess'):
+    if proto not in ('ss', 'trojan', 'anytls', 'hysteria2', 'http', 'socks5', 'vmess'):
         return None
 
     try:

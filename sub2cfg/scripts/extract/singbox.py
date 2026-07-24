@@ -28,7 +28,7 @@ def _singbox_to_clash(outbound: dict) -> dict | None:
         node['password'] = outbound.get('password', '')
         if outbound.get('udp_over_tcp'):
             node['udp'] = True
-    elif out_type in ('trojan', 'anytls'):
+    elif out_type in ('trojan', 'anytls', 'hysteria2'):
         node['password'] = outbound.get('password', '')
         tls = outbound.get('tls', {})
         if tls.get('server_name'):
@@ -40,6 +40,19 @@ def _singbox_to_clash(outbound: dict) -> dict | None:
         utls = tls.get('utls', {})
         if utls.get('fingerprint'):
             node['client-fingerprint'] = utls['fingerprint']
+
+        if out_type == 'hysteria2':
+            # obfs: sing-box obfs 对象 -> Clash obfs + obfs-password
+            obfs = outbound.get('obfs', {})
+            if obfs.get('type'):
+                node['obfs'] = obfs['type']
+                if obfs.get('password'):
+                    node['obfs-password'] = obfs['password']
+            # 带宽: sing-box int -> Clash "N Mbps"
+            if outbound.get('up_mbps') is not None:
+                node['up'] = f"{outbound['up_mbps']} Mbps"
+            if outbound.get('down_mbps') is not None:
+                node['down'] = f"{outbound['down_mbps']} Mbps"
 
     # 空闲会话字段 (anytls): Sing-box 下划线命名 duration(如 "30s") -> Clash 连字符命名 int(秒)
     convert_idle_fields(outbound, node, SINGBOX_TO_CLASH_IDLE_FIELDS)

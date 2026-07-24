@@ -140,6 +140,24 @@ class TestExtractSingbox:
         assert nodes[0]['type'] == 'anytls'
         assert nodes[0]['sni'] == 'sni.example.com'
 
+    def test_extract_hysteria2(self):
+        from extract.singbox import extract
+        content = """{
+  "outbounds": [
+    {"type": "hysteria2", "tag": "🇭🇰 香港 01", "server": "hy2.example.com", "server_port": 443,
+     "password": "hy2pass", "obfs": {"type": "salamander", "password": "opass"},
+     "up_mbps": 30, "down_mbps": 200,
+     "tls": {"enabled": true, "server_name": "hy2.example.com", "insecure": true}}
+  ]
+}"""
+        nodes = extract(content)
+        assert len(nodes) == 1
+        assert nodes[0]['type'] == 'hysteria2'
+        assert nodes[0]['obfs'] == 'salamander'
+        assert nodes[0]['obfs-password'] == 'opass'
+        assert nodes[0]['up'] == '30 Mbps'
+        assert nodes[0]['down'] == '200 Mbps'
+
     def test_extract_shadowsocks(self):
         from extract.singbox import extract
         content = """{
