@@ -1,0 +1,112 @@
+name: Release Skill
+
+on:
+  workflow_dispatch:
+    inputs:
+      skill:
+        description: '要发布的 skill 名称（须存在 <name>.md、<name>/、<name>/VERSION）'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 校验 skill 存在
+        env:
+          SKILL: ${{ inputs.skill }}
+        run: |
+          set -e
+          # 限制 skill 名格式，从源头杜绝命令注入与路径遍历
+          if ! echo "$SKILL" | grep -qE '^[a-zA-Z0-9_-]+$'; then
+            echo "::error::skill 名称只能包含字母、数字、下划线、连字符"
+            exit 1
+          fi
+          if [ ! -f "${SKILL}.md" ] || [ ! -d "${SKILL}/" ]; then
+            echo "::error::skill '${SKILL}' 不存在（需要 ${SKILL}.md 和 ${SKILL}/ 目录）"
+            exit 1
+          fi
+          if [ ! -f "${SKILL}/VERSION" ]; then
+            echo "::error::${SKILL}/VERSION 不存在。请先手动创建并写入初始版本号（如 0.1.0）"
+            exit 1
+          fi
+          echo "SKILL=${SKILL}" >> "$GITHUB_ENV"
+
+      - name: 计算新版本号
+        id: bump
+        env:
+          SKILL: ${{ env.SKILL }}
+        run: |
+          set -e
+          CURRENT=$(tr -d '[:space:]' < "${SKILL}/VERSION")
+          if ! echo "$CURRENT" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::VERSION 内容 '${CURRENT}' 不是合法 semver（应为 X.Y.Z）"
+            exit 1
+          fi
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          NEW="${MAJOR}.${MINOR}.$((PATCH + 1))"
+          TAG="${SKILL}-v${NEW}"
+          echo "current=${CURRENT}" >> "$GITHUB_OUTPUT"
+          echo "new=${NEW}" >> "$GITHUB_OUTPUT"
+          echo "TAG=${TAG}" >> "$GITHUB_ENV"
+          echo "将发布 ${SKILL}: ${CURRENT} -> ${NEW} (tag ${TAG})"
+
+      - name: 校验 tag 不存在
+        run: |
+          if git rev-parse --verify --quiet "refs/tags/${{ env.TAG }}" >/dev/null; then
+            echo "::error::tag '${{ env.TAG }}' 已存在"
+            exit 1
+          fi
+
+      - name: 写入并提交新版本号
+        env:
+          SKILL: ${{ env.SKILL }}
+          NEW: ${{ steps.bump.outputs.new }}
+          TAG: ${{ env.TAG }}
+        run: |
+          set -e
+          echo "${NEW}" > "${SKILL}/VERSION"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "${SKILL}/VERSION"
+          git commit -m "chore(${SKILL}): release v${NEW} [skip ci]"
+          git push
+          git tag "${TAG}"
+          git push origin "${TAG}"
+
+      - name: 打包 zip
+        env:
+          SKILL: ${{ env.SKILL }}
+          NEW: ${{ steps.bump.outputs.new }}
+          TAG: ${{ env.TAG }}
+        run: |
+          # 用 git archive 只打包 tracked 文件，自动排除 __pycache__ 等垃圾
+          git archive --format=zip -o "${SKILL}-v${NEW}.zip" "${TAG}" "${SKILL}.md" "${SKILL}"
+          echo "ASSET=${SKILL}-v${NEW}.zip" >> "$GITHUB_ENV"
+
+      - name: 提取 skill 简介
+        id: desc
+        env:
+          SKILL: ${{ env.SKILL }}
+        run: |
+          DESC=$(python3 -c "import re; m=re.search(r'^description:\s*(.+)$', open('${SKILL}.md',encoding='utf-8').read(), re.MULTILINE); print(m.group(1).strip() if m else '${SKILL}')")
+          echo "description=${DESC}" >> "$GITHUB_OUTPUT"
+
+      - name: 创建 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          name: ${{ env.SKILL }} v${{ steps.bump.outputs.new }}
+          body: |
+            ${{ steps.desc.outputs.description }}
+
+            **版本**: v${{ steps.bump.outputs.new }}
+          files: ${{ env.ASSET }}
