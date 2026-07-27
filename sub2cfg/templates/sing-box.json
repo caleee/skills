@@ -1,0 +1,3924 @@
+{
+  "log": {
+    "level": "warn",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "https",
+        "tag": "remote-dns",
+        "server": "1.1.1.1",
+        "detour": "DNS"
+      },
+      {
+        "type": "udp",
+        "tag": "local-dns",
+        "server": "223.5.5.5"
+      }
+    ],
+    "rules": [
+      {
+        "rule_set": "geosite-category-ads-all",
+        "action": "predefined",
+        "rcode": "NOERROR"
+      },
+      {
+        "domain_suffix": ".cn",
+        "action": "route",
+        "server": "local-dns"
+      },
+      {
+        "rule_set": [
+          "geosite-apple",
+          "geosite-geolocation-cn",
+          "geosite-cn"
+        ],
+        "action": "route",
+        "server": "local-dns"
+      }
+    ],
+    "final": "remote-dns",
+    "strategy": "prefer_ipv4"
+  },
+  "inbounds": [
+    {
+      "type": "direct",
+      "tag": "dns-in",
+      "listen": "::",
+      "listen_port": 53,
+      "network": "udp"
+    },
+    {
+      "type": "tun",
+      "tag": "tun-in",
+      "interface_name": "tun0",
+      "address": [
+        "172.31.0.1/30",
+        "fdfe:dcba:9876::1/126"
+      ],
+      "mtu": 9000,
+      "auto_route": true,
+      "iproute2_table_index": 2022,
+      "iproute2_rule_index": 9000,
+      "auto_redirect": true,
+      "auto_redirect_input_mark": "0x2023",
+      "auto_redirect_output_mark": "0x2024",
+      "exclude_mptcp": true,
+      "loopback_address": [
+        "10.7.0.1"
+      ],
+      "strict_route": true,
+      "route_address": [
+        "0.0.0.0/1",
+        "128.0.0.0/1",
+        "::/1",
+        "8000::/1"
+      ],
+      "route_exclude_address": [
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "fc00::/7"
+      ],
+      "route_exclude_address_set": [
+        "geoip-cn"
+      ],
+      "endpoint_independent_nat": false,
+      "udp_timeout": "5m",
+      "stack": "mixed",
+      "platform": {
+        "http_proxy": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "type": "mixed",
+      "tag": "mixed-in",
+      "listen": "::",
+      "listen_port": 6060,
+      "tcp_fast_open": true,
+      "udp_fragment": true
+    },
+    {
+      "type": "mixed",
+      "tag": "mixed-in-2",
+      "listen": "::",
+      "listen_port": 5050,
+      "tcp_fast_open": true,
+      "udp_fragment": true
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "Direct"
+    },
+    {
+      "type": "urltest",
+      "tag": "dns",
+      "outbounds": [
+        "hongkong",
+        "macao",
+        "taiwan",
+        "japan",
+        "korea",
+        "singapore",
+        "america",
+        "self"
+      ],
+      "url": "https://1.1.1.1",
+      "interval": "5m",
+      "tolerance": 50
+    },
+    {
+      "type": "urltest",
+      "tag": "hongkong",
+      "outbounds": [
+        "🇭🇰 香港 01",
+        "🇭🇰 香港 02",
+        "🇭🇰 香港 03 [0.3X]",
+        "🇭🇰 香港 04",
+        "🇭🇰 香港 05",
+        "🇭🇰 香港 06",
+        "🇭🇰 香港 07",
+        "🇭🇰 香港 08",
+        "🇭🇰 香港 09",
+        "🇭🇰 香港 10",
+        "🇭🇰 香港 11",
+        "🇭🇰 香港 12",
+        "🇭🇰 香港 13 家宽",
+        "🇭🇰 香港 14 家宽",
+        "🇭🇰 香港 15 家宽"
+      ],
+      "url": "http://www.gstatic.com/generate_204",
+      "interval": "5m",
+      "tolerance": 50
+    },
+    {
+      "type": "urltest",
+      "tag": "macao",
+      "outbounds": [
+        "🇲🇴 澳门 01 家宽",
+        "🇲🇴 澳门 02 家宽"
+      ],
+      "url": "http://www.gstatic.com/generate_204",
+      "interval": "5m",
+      "tolerance": 50
+    },
+    {
+      "type": "urltest",
+      "tag": "taiwan",
+      "outbounds": [
+        "🇨🇳 台湾 01 [0.3X]",
+        "🇨🇳 台湾 02",
+        "🇨🇳 台湾 03",
+        "🇨🇳 台湾 04",
+        "🇨🇳 台湾 05",
+        "🇨🇳 台湾 06",
+        "🇨🇳 台湾 07 家宽",
+        "🇨🇳 台湾 08 家宽",
+        "🇨🇳 台湾 09 家宽"
+      ],
+      "url": "http://www.gstatic.com/generate_204",
+      "interval": "5m",
+      "tolerance": 50
+    },
+    {
+      "type": "urltest",
+      "tag": "japan",
+      "outbounds": [
+        "🇯🇵 日本 01 [0.3X]",
+        "🇯🇵 日本 02",
+        "🇯🇵 日本 03",
+        "🇯🇵 日本 04",
+        "🇯🇵 日本 05",
+        "🇯🇵 日本 06",
+        "🇯🇵 日本 07",
+        "🇯🇵 日本 08 家宽",
+        "🇯🇵 日本 09 家宽",
+        "🇯🇵 日本 10 家宽",
+        "🇯🇵 日本 11 家宽",
+        "🇯🇵 日本 12 家宽"
+      ],
+      "url": "http://www.gstatic.com/generate_204",
+      "interval": "5m",
+      "tolerance": 50
+    },
+    {
+      "type": "urltest",
+      "tag": "korea",
+      "outbounds": [
+        "🇰🇷 韩国 01",
+        "🇰🇷 韩国 02",
+        "🇰🇷 韩国 03 家宽",
+        "🇰🇷 韩国 04 家宽",
+        "🇰🇷 韩国 05 家宽"
+      ],
+      "url": "http://www.gstatic.com/generate_204",
+      "interval": "5m",
+      "tolerance": 50
+    },
+    {
+      "type": "urltest",
+      "tag": "singapore",
+      "outbounds": [
+        "🇸🇬 新加坡 01 [0.3X]",
+        "🇸🇬 新加坡 02",
+        "🇸🇬 新加坡 03",
+        "🇸🇬 新加坡 04",
+        "🇸🇬 新加坡 05",
+        "🇸🇬 新加坡 06",
+        "🇸🇬 新加坡 07",
+        "🇸🇬 新加坡 08",
+        "🇸🇬 新加坡 09",
+        "🇸🇬 新加坡 10",
+        "🇸🇬 新加坡 11",
+        "🇸🇬 新加坡 12 家宽"
+      ],
+      "url": "http://www.gstatic.com/generate_204",
+      "interval": "5m",
+      "tolerance": 50
+    },
+    {
+      "type": "urltest",
+      "tag": "america",
+      "outbounds": [
+        "🇺🇸 美国 01",
+        "🇺🇸 美国 02",
+        "🇺🇸 美国 03",
+        "🇺🇸 美国 04",
+        "🇺🇸 美国 05",
+        "🇺🇸 美国 06",
+        "🇺🇸 美国 07",
+        "🇺🇸 美国 08",
+        "🇺🇸 美国 09",
+        "🇺🇸 美国 10 家宽",
+        "🇺🇸 美国 11 家宽",
+        "🇺🇸 美国 12 家宽",
+        "🇺🇸 美国 13 家宽"
+      ],
+      "url": "http://www.gstatic.com/generate_204",
+      "interval": "5m",
+      "tolerance": 50
+    },
+    {
+      "type": "selector",
+      "tag": "self",
+      "outbounds": [
+        "🇺🇸 BWH 自建 01",
+        "🇺🇸 BWH 自建 02"
+      ]
+    },
+    {
+      "type": "selector",
+      "tag": "others",
+      "outbounds": [
+        "🇵🇭 菲律宾 01",
+        "🇵🇭 菲律宾 02 家宽",
+        "🇲🇾 马来西亚 01 家宽",
+        "🇲🇾 马来西亚 02 家宽",
+        "🇲🇾 马来西亚 03 家宽",
+        "🇹🇭 泰国 01",
+        "🇹🇭 泰国 02 家宽",
+        "🇮🇳 印度 01",
+        "🇮🇳 印度 02",
+        "🇮🇩 印度尼西亚",
+        "🇻🇳 越南 家宽",
+        "🇰🇭 柬埔寨",
+        "🇧🇩 孟加拉国",
+        "🇳🇵 尼泊尔",
+        "🇲🇳 蒙古国 家宽",
+        "🇲🇲 缅甸",
+        "🇱🇦 老挝",
+        "🇰🇵 朝鲜",
+        "🇦🇺 澳大利亚 01",
+        "🇦🇺 澳大利亚 02 家宽",
+        "🇦🇺 澳大利亚 03 家宽",
+        "🇳🇿 新西兰 家宽",
+        "🇨🇦 加拿大 01 家宽",
+        "🇨🇦 加拿大 02 家宽",
+        "🇲🇽 墨西哥 01",
+        "🇲🇽 墨西哥 02 家宽",
+        "🇧🇷 巴西 01",
+        "🇧🇷 巴西 02",
+        "🇭🇳 洪都拉斯",
+        "🇨🇱 智利",
+        "🇦🇷 阿根廷 家宽",
+        "🇺🇾 乌拉圭 家宽",
+        "🇬🇫 法属圭亚那",
+        "🇨🇴 哥伦比亚",
+        "🇪🇨 厄瓜多尔 家宽",
+        "🇵🇪 秘鲁",
+        "🇧🇴 玻利维亚",
+        "🇩🇪 德国 01",
+        "🇩🇪 德国 02",
+        "🇩🇪 德国 03",
+        "🇩🇪 德国 04 家宽",
+        "🇬🇧 英国 01",
+        "🇬🇧 英国 02",
+        "🇬🇧 英国 03",
+        "🇬🇧 英国 04 家宽",
+        "🇫🇷 法国 01",
+        "🇫🇷 法国 02",
+        "🇫🇷 法国 03 家宽",
+        "🇳🇱 荷兰",
+        "🇪🇸 西班牙",
+        "🇮🇪 爱尔兰",
+        "🇮🇹 意大利",
+        "🇱🇺 卢森堡",
+        "🇨🇭 瑞士",
+        "🇩🇰 丹麦",
+        "🇫🇮 芬兰",
+        "🇸🇪 瑞典",
+        "🇳🇴 挪威",
+        "🇦🇹 奧地利",
+        "🇨🇿 捷克",
+        "🇸🇰 斯洛伐克",
+        "🇸🇮 斯洛文尼亚",
+        "🇭🇷 克罗地亚",
+        "🇮🇸 冰岛",
+        "🇹🇷 土耳其 家宽",
+        "🇧🇪 比利时",
+        "🇵🇹 葡萄牙",
+        "🇵🇱 波兰",
+        "🇱🇹 立陶宛",
+        "🇪🇪 爱沙尼亚",
+        "🇱🇻 拉脫维亚",
+        "🇭🇺 匈牙利",
+        "🇷🇺 俄罗斯",
+        "🇺🇦 乌克兰",
+        "🇲🇩 摩尔多瓦",
+        "🇷🇴 罗马尼亚",
+        "🇧🇬 保加利亚",
+        "🇷🇸 塞尔维亚",
+        "🇲🇰 北马其顿",
+        "🇮🇶 伊拉克",
+        "🇬🇷 希腊",
+        "🇲🇹 马耳他",
+        "🇮🇱 以色列",
+        "🇹🇿 坦桑尼亚",
+        "🇦🇿 阿塞拜疆",
+        "🇪🇬 埃及",
+        "🇦🇪 迪拜",
+        "🇸🇦 沙特阿拉伯",
+        "🇺🇿 乌茲別克",
+        "🇰🇿 哈萨克 家宽",
+        "🇰🇬 吉尔吉斯",
+        "🇹🇯 塔吉克",
+        "🇵🇰 巴基斯坦",
+        "🇧🇭 巴林 家宽",
+        "🇩🇿 阿尔及利亚",
+        "🇳🇬 尼日利亚 01",
+        "🇳🇬 尼日利亚 02",
+        "🇪🇹 埃塞俄比亚 家宽",
+        "🇦🇴 安哥拉",
+        "🇰🇪 肯尼亚",
+        "🇿🇦 南非",
+        "🇬🇱 格陵兰岛",
+        "🇦🇶 南极洲"
+      ]
+    },
+    {
+      "type": "urltest",
+      "tag": "youtube",
+      "outbounds": [
+        "hongkong",
+        "macao",
+        "taiwan",
+        "japan",
+        "korea",
+        "singapore",
+        "america",
+        "self"
+      ],
+      "url": "https://www.youtube.com/generate_204",
+      "interval": "5m",
+      "tolerance": 50
+    },
+    {
+      "type": "urltest",
+      "tag": "google",
+      "outbounds": [
+        "hongkong",
+        "macao",
+        "taiwan",
+        "japan",
+        "korea",
+        "singapore",
+        "america",
+        "self"
+      ],
+      "url": "https://www.gstatic.com/generate_204",
+      "interval": "5m",
+      "tolerance": 50
+    },
+    {
+      "type": "urltest",
+      "tag": "github",
+      "outbounds": [
+        "hongkong",
+        "macao",
+        "taiwan",
+        "japan",
+        "korea",
+        "singapore",
+        "america",
+        "self",
+        "Direct"
+      ],
+      "url": "https://github.com",
+      "interval": "5m",
+      "tolerance": 50
+    },
+    {
+      "type": "urltest",
+      "tag": "telegram",
+      "outbounds": [
+        "hongkong",
+        "macao",
+        "taiwan",
+        "japan",
+        "korea",
+        "singapore",
+        "america",
+        "self"
+      ],
+      "url": "https://telegram.org",
+      "interval": "5m",
+      "tolerance": 50
+    },
+    {
+      "type": "urltest",
+      "tag": "overseaai",
+      "outbounds": [
+        "hongkong",
+        "macao",
+        "taiwan",
+        "japan",
+        "korea",
+        "singapore",
+        "america",
+        "self"
+      ],
+      "url": "https://chatgpt.com",
+      "interval": "5m",
+      "tolerance": 50
+    },
+    {
+      "type": "urltest",
+      "tag": "cdn",
+      "outbounds": [
+        "hongkong",
+        "macao",
+        "taiwan",
+        "japan",
+        "korea",
+        "singapore",
+        "america",
+        "self",
+        "Direct"
+      ],
+      "url": "https://cp.cloudflare.com/generate_204",
+      "interval": "5m",
+      "tolerance": 50
+    },
+    {
+      "type": "urltest",
+      "tag": "apple",
+      "outbounds": [
+        "hongkong",
+        "macao",
+        "taiwan",
+        "japan",
+        "korea",
+        "singapore",
+        "america",
+        "self",
+        "Direct"
+      ],
+      "url": "https://www.apple.com",
+      "interval": "5m",
+      "tolerance": 50
+    },
+    {
+      "type": "urltest",
+      "tag": "microsoft",
+      "outbounds": [
+        "hongkong",
+        "macao",
+        "taiwan",
+        "japan",
+        "korea",
+        "singapore",
+        "america",
+        "self",
+        "Direct"
+      ],
+      "url": "https://www.microsoft.com",
+      "interval": "5m",
+      "tolerance": 50
+    },
+    {
+      "type": "urltest",
+      "tag": "games",
+      "outbounds": [
+        "hongkong",
+        "macao",
+        "taiwan",
+        "japan",
+        "korea",
+        "singapore",
+        "america",
+        "self"
+      ],
+      "url": "https://www.gstatic.com/generate_204",
+      "interval": "5m",
+      "tolerance": 50
+    },
+    {
+      "type": "urltest",
+      "tag": "final",
+      "outbounds": [
+        "hongkong",
+        "macao",
+        "taiwan",
+        "japan",
+        "korea",
+        "singapore",
+        "america",
+        "self",
+        "Direct"
+      ],
+      "url": "https://cp.cloudflare.com/generate_204",
+      "interval": "5m",
+      "tolerance": 50
+    },
+    {
+      "type": "anytls",
+      "tag": "🇭🇰 香港 01",
+      "server": "PROXY_SERVER",
+      "server_port": 35101,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇭🇰 香港 02",
+      "server": "PROXY_SERVER",
+      "server_port": 35102,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇭🇰 香港 03 [0.3X]",
+      "server": "PROXY_SERVER",
+      "server_port": 35103,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇭🇰 香港 04",
+      "server": "PROXY_SERVER",
+      "server_port": 35104,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇭🇰 香港 05",
+      "server": "PROXY_SERVER",
+      "server_port": 35105,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇭🇰 香港 06",
+      "server": "PROXY_SERVER",
+      "server_port": 35106,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇭🇰 香港 07",
+      "server": "PROXY_SERVER",
+      "server_port": 35107,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇭🇰 香港 08",
+      "server": "PROXY_SERVER",
+      "server_port": 35108,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇭🇰 香港 09",
+      "server": "PROXY_SERVER",
+      "server_port": 35109,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇭🇰 香港 10",
+      "server": "PROXY_SERVER",
+      "server_port": 35110,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇭🇰 香港 11",
+      "server": "PROXY_SERVER",
+      "server_port": 35111,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇭🇰 香港 12",
+      "server": "PROXY_SERVER",
+      "server_port": 35112,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇭🇰 香港 13 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35113,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇭🇰 香港 14 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35114,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇭🇰 香港 15 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35115,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇸🇬 新加坡 01 [0.3X]",
+      "server": "PROXY_SERVER",
+      "server_port": 35121,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇸🇬 新加坡 02",
+      "server": "PROXY_SERVER",
+      "server_port": 35122,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇸🇬 新加坡 03",
+      "server": "PROXY_SERVER",
+      "server_port": 35123,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇸🇬 新加坡 04",
+      "server": "PROXY_SERVER",
+      "server_port": 35124,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇸🇬 新加坡 05",
+      "server": "PROXY_SERVER",
+      "server_port": 35125,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇸🇬 新加坡 06",
+      "server": "PROXY_SERVER",
+      "server_port": 35126,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇸🇬 新加坡 07",
+      "server": "PROXY_SERVER",
+      "server_port": 35127,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇸🇬 新加坡 08",
+      "server": "PROXY_SERVER",
+      "server_port": 35128,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇸🇬 新加坡 09",
+      "server": "PROXY_SERVER",
+      "server_port": 35129,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇸🇬 新加坡 10",
+      "server": "PROXY_SERVER",
+      "server_port": 35130,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇸🇬 新加坡 11",
+      "server": "PROXY_SERVER",
+      "server_port": 35131,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇸🇬 新加坡 12 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35132,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇨🇳 台湾 01 [0.3X]",
+      "server": "PROXY_SERVER",
+      "server_port": 35141,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇨🇳 台湾 02",
+      "server": "PROXY_SERVER",
+      "server_port": 35142,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇨🇳 台湾 03",
+      "server": "PROXY_SERVER",
+      "server_port": 35143,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇨🇳 台湾 04",
+      "server": "PROXY_SERVER",
+      "server_port": 35144,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇨🇳 台湾 05",
+      "server": "PROXY_SERVER",
+      "server_port": 35145,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇨🇳 台湾 06",
+      "server": "PROXY_SERVER",
+      "server_port": 35146,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇨🇳 台湾 07 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35148,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇨🇳 台湾 08 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35149,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇨🇳 台湾 09 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35150,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇲🇴 澳门 01 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35169,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇲🇴 澳门 02 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35170,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇵🇭 菲律宾 01",
+      "server": "PROXY_SERVER",
+      "server_port": 35164,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇵🇭 菲律宾 02 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35165,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇲🇾 马来西亚 01 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35166,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇲🇾 马来西亚 02 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35167,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇲🇾 马来西亚 03 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35168,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇹🇭 泰国 01",
+      "server": "PROXY_SERVER",
+      "server_port": 35171,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇹🇭 泰国 02 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35172,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇮🇳 印度 01",
+      "server": "PROXY_SERVER",
+      "server_port": 35161,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇮🇳 印度 02",
+      "server": "PROXY_SERVER",
+      "server_port": 35162,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇮🇩 印度尼西亚",
+      "server": "PROXY_SERVER",
+      "server_port": 35163,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇻🇳 越南 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35173,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇰🇭 柬埔寨",
+      "server": "PROXY_SERVER",
+      "server_port": 35174,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇧🇩 孟加拉国",
+      "server": "PROXY_SERVER",
+      "server_port": 35175,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇳🇵 尼泊尔",
+      "server": "PROXY_SERVER",
+      "server_port": 35176,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇲🇳 蒙古国 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35177,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇲🇲 缅甸",
+      "server": "PROXY_SERVER",
+      "server_port": 35178,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇱🇦 老挝",
+      "server": "PROXY_SERVER",
+      "server_port": 35179,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇰🇵 朝鲜",
+      "server": "PROXY_SERVER",
+      "server_port": 35180,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇦🇺 澳大利亚 01",
+      "server": "PROXY_SERVER",
+      "server_port": 35181,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇦🇺 澳大利亚 02 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35182,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇦🇺 澳大利亚 03 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35183,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇳🇿 新西兰 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35184,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇯🇵 日本 01 [0.3X]",
+      "server": "PROXY_SERVER",
+      "server_port": 35201,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇯🇵 日本 02",
+      "server": "PROXY_SERVER",
+      "server_port": 35202,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇯🇵 日本 03",
+      "server": "PROXY_SERVER",
+      "server_port": 35203,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇯🇵 日本 04",
+      "server": "PROXY_SERVER",
+      "server_port": 35204,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇯🇵 日本 05",
+      "server": "PROXY_SERVER",
+      "server_port": 35205,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇯🇵 日本 06",
+      "server": "PROXY_SERVER",
+      "server_port": 35206,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇯🇵 日本 07",
+      "server": "PROXY_SERVER",
+      "server_port": 35207,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇯🇵 日本 08 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35208,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇯🇵 日本 09 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35209,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇯🇵 日本 10 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35210,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇯🇵 日本 11 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35211,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇯🇵 日本 12 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35212,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇰🇷 韩国 01",
+      "server": "PROXY_SERVER",
+      "server_port": 35221,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇰🇷 韩国 02",
+      "server": "PROXY_SERVER",
+      "server_port": 35222,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇰🇷 韩国 03 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35223,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇰🇷 韩国 04 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35224,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇰🇷 韩国 05 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35225,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇺🇸 美国 01",
+      "server": "PROXY_SERVER",
+      "server_port": 35231,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇺🇸 美国 02",
+      "server": "PROXY_SERVER",
+      "server_port": 35232,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇺🇸 美国 03",
+      "server": "PROXY_SERVER",
+      "server_port": 35233,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇺🇸 美国 04",
+      "server": "PROXY_SERVER",
+      "server_port": 35234,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇺🇸 美国 05",
+      "server": "PROXY_SERVER",
+      "server_port": 35235,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇺🇸 美国 06",
+      "server": "PROXY_SERVER",
+      "server_port": 35236,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇺🇸 美国 07",
+      "server": "PROXY_SERVER",
+      "server_port": 35237,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇺🇸 美国 08",
+      "server": "PROXY_SERVER",
+      "server_port": 35238,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇺🇸 美国 09",
+      "server": "PROXY_SERVER",
+      "server_port": 35239,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇺🇸 美国 10 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35240,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇺🇸 美国 11 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35241,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇺🇸 美国 12 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35242,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇺🇸 美国 13 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35243,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇨🇦 加拿大 01 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35251,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇨🇦 加拿大 02 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35252,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇲🇽 墨西哥 01",
+      "server": "PROXY_SERVER",
+      "server_port": 35253,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇲🇽 墨西哥 02 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35254,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇧🇷 巴西 01",
+      "server": "PROXY_SERVER",
+      "server_port": 35255,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇧🇷 巴西 02",
+      "server": "PROXY_SERVER",
+      "server_port": 35256,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇭🇳 洪都拉斯",
+      "server": "PROXY_SERVER",
+      "server_port": 35257,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇨🇱 智利",
+      "server": "PROXY_SERVER",
+      "server_port": 35258,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇦🇷 阿根廷 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35259,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇺🇾 乌拉圭 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35260,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇬🇫 法属圭亚那",
+      "server": "PROXY_SERVER",
+      "server_port": 35261,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇨🇴 哥伦比亚",
+      "server": "PROXY_SERVER",
+      "server_port": 35262,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇪🇨 厄瓜多尔 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35263,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇵🇪 秘鲁",
+      "server": "PROXY_SERVER",
+      "server_port": 35264,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇧🇴 玻利维亚",
+      "server": "PROXY_SERVER",
+      "server_port": 35265,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇩🇪 德国 01",
+      "server": "PROXY_SERVER",
+      "server_port": 35301,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇩🇪 德国 02",
+      "server": "PROXY_SERVER",
+      "server_port": 35302,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇩🇪 德国 03",
+      "server": "PROXY_SERVER",
+      "server_port": 35303,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇩🇪 德国 04 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35304,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇬🇧 英国 01",
+      "server": "PROXY_SERVER",
+      "server_port": 35311,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇬🇧 英国 02",
+      "server": "PROXY_SERVER",
+      "server_port": 35312,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇬🇧 英国 03",
+      "server": "PROXY_SERVER",
+      "server_port": 35313,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇬🇧 英国 04 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35314,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇫🇷 法国 01",
+      "server": "PROXY_SERVER",
+      "server_port": 35321,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇫🇷 法国 02",
+      "server": "PROXY_SERVER",
+      "server_port": 35322,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇫🇷 法国 03 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35323,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇳🇱 荷兰",
+      "server": "PROXY_SERVER",
+      "server_port": 35331,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇪🇸 西班牙",
+      "server": "PROXY_SERVER",
+      "server_port": 35332,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇮🇪 爱尔兰",
+      "server": "PROXY_SERVER",
+      "server_port": 35333,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇮🇹 意大利",
+      "server": "PROXY_SERVER",
+      "server_port": 35334,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇱🇺 卢森堡",
+      "server": "PROXY_SERVER",
+      "server_port": 35335,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇨🇭 瑞士",
+      "server": "PROXY_SERVER",
+      "server_port": 35336,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇩🇰 丹麦",
+      "server": "PROXY_SERVER",
+      "server_port": 35337,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇫🇮 芬兰",
+      "server": "PROXY_SERVER",
+      "server_port": 35338,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇸🇪 瑞典",
+      "server": "PROXY_SERVER",
+      "server_port": 35339,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇳🇴 挪威",
+      "server": "PROXY_SERVER",
+      "server_port": 35340,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇦🇹 奧地利",
+      "server": "PROXY_SERVER",
+      "server_port": 35341,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇨🇿 捷克",
+      "server": "PROXY_SERVER",
+      "server_port": 35342,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇸🇰 斯洛伐克",
+      "server": "PROXY_SERVER",
+      "server_port": 35343,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇸🇮 斯洛文尼亚",
+      "server": "PROXY_SERVER",
+      "server_port": 35344,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇭🇷 克罗地亚",
+      "server": "PROXY_SERVER",
+      "server_port": 35345,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇮🇸 冰岛",
+      "server": "PROXY_SERVER",
+      "server_port": 35346,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇹🇷 土耳其 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35347,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇧🇪 比利时",
+      "server": "PROXY_SERVER",
+      "server_port": 35348,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇵🇹 葡萄牙",
+      "server": "PROXY_SERVER",
+      "server_port": 35349,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇵🇱 波兰",
+      "server": "PROXY_SERVER",
+      "server_port": 35350,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇱🇹 立陶宛",
+      "server": "PROXY_SERVER",
+      "server_port": 35351,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇪🇪 爱沙尼亚",
+      "server": "PROXY_SERVER",
+      "server_port": 35352,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇱🇻 拉脫维亚",
+      "server": "PROXY_SERVER",
+      "server_port": 35353,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇭🇺 匈牙利",
+      "server": "PROXY_SERVER",
+      "server_port": 35354,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇷🇺 俄罗斯",
+      "server": "PROXY_SERVER",
+      "server_port": 35355,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇺🇦 乌克兰",
+      "server": "PROXY_SERVER",
+      "server_port": 35356,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇲🇩 摩尔多瓦",
+      "server": "PROXY_SERVER",
+      "server_port": 35357,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇷🇴 罗马尼亚",
+      "server": "PROXY_SERVER",
+      "server_port": 35358,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇧🇬 保加利亚",
+      "server": "PROXY_SERVER",
+      "server_port": 35359,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇷🇸 塞尔维亚",
+      "server": "PROXY_SERVER",
+      "server_port": 35360,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇲🇰 北马其顿",
+      "server": "PROXY_SERVER",
+      "server_port": 35361,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇮🇶 伊拉克",
+      "server": "PROXY_SERVER",
+      "server_port": 35362,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇬🇷 希腊",
+      "server": "PROXY_SERVER",
+      "server_port": 35363,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇲🇹 马耳他",
+      "server": "PROXY_SERVER",
+      "server_port": 35364,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇮🇱 以色列",
+      "server": "PROXY_SERVER",
+      "server_port": 35365,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇹🇿 坦桑尼亚",
+      "server": "PROXY_SERVER",
+      "server_port": 35366,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇦🇿 阿塞拜疆",
+      "server": "PROXY_SERVER",
+      "server_port": 35367,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇪🇬 埃及",
+      "server": "PROXY_SERVER",
+      "server_port": 35368,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇦🇪 迪拜",
+      "server": "PROXY_SERVER",
+      "server_port": 35401,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇸🇦 沙特阿拉伯",
+      "server": "PROXY_SERVER",
+      "server_port": 35402,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇺🇿 乌茲別克",
+      "server": "PROXY_SERVER",
+      "server_port": 35403,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇰🇿 哈萨克 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35405,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇰🇬 吉尔吉斯",
+      "server": "PROXY_SERVER",
+      "server_port": 35406,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇹🇯 塔吉克",
+      "server": "PROXY_SERVER",
+      "server_port": 35407,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇵🇰 巴基斯坦",
+      "server": "PROXY_SERVER",
+      "server_port": 35408,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇧🇭 巴林 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35409,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇩🇿 阿尔及利亚",
+      "server": "PROXY_SERVER",
+      "server_port": 35411,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇳🇬 尼日利亚 01",
+      "server": "PROXY_SERVER",
+      "server_port": 35413,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇳🇬 尼日利亚 02",
+      "server": "PROXY_SERVER",
+      "server_port": 35414,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇪🇹 埃塞俄比亚 家宽",
+      "server": "PROXY_SERVER",
+      "server_port": 35415,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇦🇴 安哥拉",
+      "server": "PROXY_SERVER",
+      "server_port": 35416,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇰🇪 肯尼亚",
+      "server": "PROXY_SERVER",
+      "server_port": 35417,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇿🇦 南非",
+      "server": "PROXY_SERVER",
+      "server_port": 35418,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇬🇱 格陵兰岛",
+      "server": "PROXY_SERVER",
+      "server_port": 35419,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "🇦🇶 南极洲",
+      "server": "PROXY_SERVER",
+      "server_port": 35420,
+      "password": "PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SNI_SERVER",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "🇺🇸 SELF 自建 01",
+      "server": "SELF_IP",
+      "server_port": 443,
+      "uuid": "SELF_UUID",
+      "flow": "xtls-rprx-vision",
+      "network": "tcp",
+      "tls": {
+        "enabled": true,
+        "server_name": "SELF_SNI",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "firefox"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "SELF_PUBLIC_KEY",
+          "short_id": "SELF_SHORT_ID"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "hysteria2",
+      "tag": "🇺🇸 SELF 自建 02",
+      "server": "SELF_SERVER",
+      "server_port": 443,
+      "up_mbps": 100,
+      "down_mbps": 1000,
+      "obfs": {
+        "type": "salamander",
+        "password": "SELF_OBFS_PASSWORD"
+      },
+      "password": "SELF_PASSWORD",
+      "tls": {
+        "enabled": true,
+        "server_name": "SELF_SNI",
+        "alpn": "h3"
+      }
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "rule_set": "geosite-category-ads-all",
+        "action": "reject"
+      },
+      {
+        "network": "udp",
+        "port": 443,
+        "action": "reject"
+      },
+      {
+        "port": 853,
+        "action": "reject"
+      },
+      {
+        "ip_cidr": [
+          "8.8.8.8",
+          "8.8.4.4",
+          "1.1.1.1",
+          "1.0.0.1",
+          "1.1.1.2",
+          "1.0.0.2",
+          "104.16.249.249",
+          "104.16.248.249",
+          "104.16.133.229",
+          "104.16.132.229",
+          "94.140.14.14",
+          "94.140.15.15",
+          "9.9.9.9",
+          "9.9.9.11",
+          "149.112.112.112",
+          "149.112.112.11"
+        ],
+        "action": "route",
+        "outbound": "dns"
+      },
+      {
+        "ip_cidr": [
+          "223.5.5.5",
+          "223.6.6.6",
+          "119.29.29.29",
+          "180.76.76.76",
+          "114.114.114.114",
+          "114.114.115.115",
+          "8.211.155.65"
+        ],
+        "action": "route",
+        "outbound": "Direct"
+      },
+      {
+        "ip_cidr": [
+          "10.10.10.10",
+          "10.10.10.9",
+          "10.10.10.1",
+          "10.10.0.1"
+        ],
+        "port": 53,
+        "action": "route",
+        "outbound": "Direct"
+      },
+      {
+        "process_name": [
+          "easytier",
+          "easytier-cli",
+          "easytier-core",
+          "NetworkManager",
+          "systemd-resolved",
+          "dnsmasq",
+          "mosdns",
+          "AdGuardHome"
+        ],
+        "action": "route",
+        "outbound": "Direct"
+      },
+      {
+        "domain_suffix": [
+          "dns.google.com",
+          "dns.google",
+          "cloudflare-dns.com",
+          "dns.cloudflare.com",
+          "security.cloudflare-dns.com",
+          "one.one.one.one",
+          "1dot1dot1dot1.cloudflare-dns.com",
+          "dns.adguard-dns.com",
+          "family.adguard-dns.com",
+          "0ms.dev",
+          "doh.opendns.com",
+          "dns.mullvad.net",
+          "dns.nextdns.io",
+          "anycast.dns.nextdns.io",
+          "dns.quad9.net",
+          "dns11.quad9.net",
+          "dns.rabbitdns.org",
+          "dns.twnic.tw",
+          "basic.rethinkdns.com",
+          "dns.controld.com"
+        ],
+        "action": "route",
+        "outbound": "dns"
+      },
+      {
+        "domain_suffix": [
+          "dns.alidns.com",
+          "doh.pub",
+          "dot.pub",
+          "clash.razord.top",
+          "yacd.metacubex.one",
+          "yacd.haishan.me",
+          "d.metacubex.one",
+          "metacubexd.pages.dev",
+          "cdn.jsdelivr.net",
+          "fastly.jsdelivr.net",
+          "testingcf.jsdelivr.net",
+          "ghproxy.com",
+          "gh-proxy.com",
+          "ghproxy.net",
+          "mirror.ghproxy.com",
+          "ghp.ci",
+          "ghproxy.cc",
+          "asiayun.com",
+          "imgcache.yyyisp.com"
+        ],
+        "action": "route",
+        "outbound": "Direct"
+      },
+      {
+        "domain_suffix": [
+          "igoutu.cn",
+          "speedtest.net",
+          "cpu-monkey.com",
+          "theporndude.com"
+        ],
+        "action": "route",
+        "outbound": "japan"
+      },
+      {
+        "domain_suffix": "pathofexile.com",
+        "action": "route",
+        "outbound": "america"
+      },
+      {
+        "port": [
+          12310,
+          12311,
+          12312
+        ],
+        "action": "route",
+        "outbound": "Direct"
+      },
+      {
+        "ip_cidr": "202.214.238.0/24",
+        "port_range": "12310:12312",
+        "action": "reject"
+      },
+      {
+        "network": "udp",
+        "port": 123,
+        "action": "route",
+        "outbound": "apple"
+      },
+      {
+        "ip_is_private": true,
+        "action": "route",
+        "outbound": "Direct"
+      },
+      {
+        "rule_set": "geoip-private",
+        "action": "route",
+        "outbound": "Direct"
+      },
+      {
+        "rule_set": "geosite-private",
+        "action": "route",
+        "outbound": "Direct"
+      },
+      {
+        "rule_set": "geosite-tld-cn",
+        "action": "route",
+        "outbound": "Direct"
+      },
+      {
+        "domain_suffix": [
+          "cntt.cc",
+          "icc.pp.ua",
+          "ec.edu.kg",
+          "070405.xyz"
+        ],
+        "action": "route",
+        "outbound": "Direct"
+      },
+      {
+        "rule_set": "geosite-apple-cn",
+        "action": "route",
+        "outbound": "Direct"
+      },
+      {
+        "rule_set": "geosite-apple",
+        "action": "route",
+        "outbound": "apple"
+      },
+      {
+        "rule_set": "geosite-telegram",
+        "action": "route",
+        "outbound": "telegram"
+      },
+      {
+        "rule_set": "geosite-discord",
+        "action": "route",
+        "outbound": "singapore"
+      },
+      {
+        "rule_set": "geosite-category-ai-cn",
+        "action": "route",
+        "outbound": "Direct"
+      },
+      {
+        "rule_set": [
+          "geosite-openai",
+          "geosite-anthropic",
+          "geosite-google-deepmind",
+          "geosite-bytedance-ai-!cn",
+          "geosite-category-ai-!cn"
+        ],
+        "action": "route",
+        "outbound": "overseaai"
+      },
+      {
+        "rule_set": "geosite-youtube",
+        "action": "route",
+        "outbound": "youtube"
+      },
+      {
+        "rule_set": "geosite-google@cn",
+        "action": "route",
+        "outbound": "Direct"
+      },
+      {
+        "rule_set": [
+          "geosite-google",
+          "geosite-googlefcm",
+          "geosite-google-play",
+          "geosite-bing"
+        ],
+        "action": "route",
+        "outbound": "google"
+      },
+      {
+        "domain_suffix": [
+          "gvt1.com",
+          "gvt2.com",
+          "gvt3.com",
+          "xn--ngstr-lra8j.com"
+        ],
+        "action": "route",
+        "outbound": "google"
+      },
+      {
+        "rule_set": "geosite-github",
+        "action": "route",
+        "outbound": "github"
+      },
+      {
+        "rule_set": [
+          "geosite-onedrive",
+          "geosite-microsoft"
+        ],
+        "action": "route",
+        "outbound": "microsoft"
+      },
+      {
+        "rule_set": "geosite-category-games@cn",
+        "action": "route",
+        "outbound": "Direct"
+      },
+      {
+        "rule_set": "geosite-category-games",
+        "action": "route",
+        "outbound": "games"
+      },
+      {
+        "rule_set": "geosite-category-cdn-cn",
+        "action": "route",
+        "outbound": "Direct"
+      },
+      {
+        "rule_set": "geosite-category-cdn-!cn",
+        "action": "route",
+        "outbound": "cdn"
+      },
+      {
+        "rule_set": "geoip-cloudflare",
+        "action": "route",
+        "outbound": "cdn"
+      },
+      {
+        "domain_suffix": ".jp",
+        "action": "route",
+        "outbound": "japan"
+      },
+      {
+        "rule_set": [
+          "geosite-geolocation-cn",
+          "geosite-cn"
+        ],
+        "action": "route",
+        "outbound": "Direct"
+      },
+      {
+        "rule_set": "geoip-cn",
+        "action": "route",
+        "outbound": "Direct"
+      },
+      {
+        "rule_set": "geoip-hk",
+        "action": "route",
+        "outbound": "hongkong"
+      },
+      {
+        "rule_set": "geoip-jp",
+        "action": "route",
+        "outbound": "japan"
+      },
+      {
+        "rule_set": "geoip-us",
+        "action": "route",
+        "outbound": "america"
+      },
+      {
+        "rule_set": [
+          "geosite-gfw",
+          "geosite-greatfire",
+          "geosite-geolocation-!cn"
+        ],
+        "action": "route",
+        "outbound": "final"
+      }
+    ],
+    "rule_set": [
+      {
+        "type": "remote",
+        "tag": "geoip-private",
+        "url": "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@sing/geo/geoip/private.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-private",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-private.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-tld-cn",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-tld-cn.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-category-ads-all",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ads-all.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-apple-cn",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-apple-cn.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-apple",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-apple.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-telegram",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-telegram.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-discord",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-discord.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-category-ai-cn",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ai-cn.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-openai",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-openai.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-anthropic",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-anthropic.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-google-deepmind",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-google-deepmind.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-bytedance-ai-!cn",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-bytedance-ai-!cn.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-category-ai-!cn",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ai-!cn.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-youtube",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-youtube.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-google@cn",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-google@cn.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-google",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-google.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-googlefcm",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-googlefcm.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-google-play",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-google-play.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-bing",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-bing.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-github",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-github.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-onedrive",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-onedrive.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-microsoft",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-microsoft.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-category-games@cn",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-games@cn.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-category-games",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-games.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-category-cdn-cn",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-cdn-cn.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-category-cdn-!cn",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-cdn-!cn.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geoip-cloudflare",
+        "url": "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@sing/geo/geoip/cloudflare.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-geolocation-cn",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-geolocation-cn.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-cn",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geoip-cn",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-cn.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geoip-hk",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-hk.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geoip-jp",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-jp.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geoip-us",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-us.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-gfw",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-gfw.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-greatfire",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-greatfire.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-geolocation-!cn",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-geolocation-!cn.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-dns",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-dns.srs",
+        "download_detour": "Direct"
+      }
+    ],
+    "final": "final",
+    "auto_detect_interface": true,
+    "default_domain_resolver": {
+      "server": "local-dns",
+      "rewrite_ttl": 60
+    }
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "store_rdrc": true
+    },
+    "clash_api": {
+      "external_controller": "10.10.10.0:3030",
+      "external_ui": "ui",
+      "external_ui_download_url": "https://gh-proxy.com/https://github.com/Zephyruso/zashboard/archive/refs/heads/gh-pages.zip",
+      "external_ui_download_detour": "Direct",
+      "default_mode": "Enhanced"
+    }
+  }
+}

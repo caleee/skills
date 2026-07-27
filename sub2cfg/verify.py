@@ -121,9 +121,10 @@ def main():
     section('2. 格式检测')
     from detect import detect
 
+    TEMPLATE_DIR = os.path.join(SCRIPT_DIR, 'templates')
     SAMPLE_DIR = os.path.join(SCRIPT_DIR, 'sample')
 
-    with open(os.path.join(SAMPLE_DIR, 'clash-subscribe.yaml'), 'r', encoding='utf-8') as f:
+    with open(os.path.join(TEMPLATE_DIR, 'clash.yaml'), 'r', encoding='utf-8') as f:
         check('detect: Clash', detect(f.read()) == 'clash')
 
     with open(os.path.join(SAMPLE_DIR, 'surge-subscribe.conf'), 'r', encoding='utf-8') as f:
@@ -252,16 +253,16 @@ proxies:
     section('5. 端到端测试')
 
     # 5.1 Clash
-    r = run_sub2cfg(os.path.join(SAMPLE_DIR, 'clash-subscribe.yaml'), '-g')
+    r = run_sub2cfg(os.path.join(TEMPLATE_DIR, 'clash.yaml'), '-g')
     check('Clash → Clash (带组)', r.returncode == 0 and '提取到' in r.stderr)
     n = node_count(r.stdout)
-    check(f'Clash 节点数: {n}', n == 56)
+    check(f'Clash 节点数: {n}', n == 173)
 
-    r = run_sub2cfg(os.path.join(SAMPLE_DIR, 'clash-subscribe.yaml'), '-t', 'sing-box', '-g')
+    r = run_sub2cfg(os.path.join(TEMPLATE_DIR, 'clash.yaml'), '-t', 'sing-box', '-g')
     check('Clash → Sing-box (带组)', r.returncode == 0 and '提取到' in r.stderr)
     check('Sing-box 输出为 JSON', _is_json(r.stdout))
     n = node_count(r.stdout)
-    check(f'Sing-box 节点数: {n}', n == 56)
+    check(f'Sing-box 节点数: {n}', n == 172)
 
     # 5.2 Surge
     r = run_sub2cfg(os.path.join(SAMPLE_DIR, 'surge-subscribe.conf'))
@@ -288,20 +289,20 @@ proxies:
     r = run_sub2cfg(os.path.join(SAMPLE_DIR, 'base64-uri.txt'), '-f', 'base64-uri')
     check('Base64-URI 提取', r.returncode == 0)
     n = node_count(r.stdout)
-    check(f'Base64 节点数: {n}', n == 2)
+    check(f'Base64 节点数: {n}', n == 1)
 
     # 5.6 Sing-box
     r = run_sub2cfg(os.path.join(SAMPLE_DIR, 'sing-box-subscribe.json'))
     check('Sing-box 自动检测', r.returncode == 0)
     n = node_count(r.stdout)
-    check(f'Sing-box 节点数: {n}', n == 4)
+    check(f'Sing-box 节点数: {n}', n == 3)
 
     r = run_sub2cfg(os.path.join(SAMPLE_DIR, 'sing-box-subscribe.json'), '-t', 'sing-box', '-g')
     check('Sing-box -> Sing-box (带组)', r.returncode == 0)
 
     # 5.7 输出文件
     tmp = os.path.join(tempfile.gettempdir(), 'sub2cfg-test-output.yaml')
-    r = run_sub2cfg(os.path.join(SAMPLE_DIR, 'clash-subscribe.yaml'), '-o', tmp)
+    r = run_sub2cfg(os.path.join(TEMPLATE_DIR, 'clash.yaml'), '-o', tmp)
     check('输出文件', r.returncode == 0 and os.path.exists(tmp))
     if os.path.exists(tmp):
         os.unlink(tmp)

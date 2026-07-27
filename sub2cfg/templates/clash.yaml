@@ -1,0 +1,845 @@
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  listen: 0.0.0.0:7853
+  respect-rules: true
+  fake-ip-filter-mode: blacklist
+  fake-ip-filter:
+  - "*.lan"
+  - "*.localdomain"
+  - "*.example"
+  - "*.invalid"
+  - "*.localhost"
+  - "*.test"
+  - "*.local"
+  - "*.home.arpa"
+  - "*.direct"
+  - cable.auth.com
+  - network-test.debian.org
+  - detectportal.firefox.com
+  - resolver1.opendns.com
+  - global.turn.twilio.com
+  - global.stun.twilio.com
+  - app.yinxiang.com
+  - injections.adguard.org
+  - localhost.*.weixin.qq.com
+  - "*.blzstatic.cn"
+  - "*.cmpassport.com"
+  - id6.me
+  - open.e.189.cn
+  - opencloud.wostore.cn
+  - id.mail.wo.cn
+  - mdn.open.wo.cn
+  - hmrz.wo.cn
+  - nishub1.10010.com
+  - enrichgw.10010.com
+  - "*.wosms.cn"
+  - "*.jegotrip.com.cn"
+  - "*.icitymobile.mobi"
+  - "*.pingan.com.cn"
+  - "*.cmbchina.com"
+  - "*.10099.com.cn"
+  - "*.microdone.cn"
+  - PDC._msDCS.*.*
+  - DC._msDCS.*.*
+  - GC._msDCS.*.*
+  - time.*.com
+  - time.*.gov
+  - time.*.edu.cn
+  - time.*.apple.com
+  - time-ios.apple.com
+  - time1.*.com
+  - time2.*.com
+  - time3.*.com
+  - time4.*.com
+  - time5.*.com
+  - time6.*.com
+  - time7.*.com
+  - ntp.*.com
+  - ntp1.*.com
+  - ntp2.*.com
+  - ntp3.*.com
+  - ntp4.*.com
+  - ntp5.*.com
+  - ntp6.*.com
+  - ntp7.*.com
+  - "*.time.edu.cn"
+  - "*.ntp.org.cn"
+  - "+.pool.ntp.org"
+  - time1.cloud.tencent.com
+  - music.163.com
+  - "*.music.163.com"
+  - "*.126.net"
+  - musicapi.taihe.com
+  - music.taihe.com
+  - songsearch.kugou.com
+  - trackercdn.kugou.com
+  - "*.kuwo.cn"
+  - api-jooxtt.sanook.com
+  - api.joox.com
+  - joox.com
+  - y.qq.com
+  - "*.y.qq.com"
+  - streamoc.music.tc.qq.com
+  - mobileoc.music.tc.qq.com
+  - isure.stream.qqmusic.qq.com
+  - dl.stream.qqmusic.qq.com
+  - aqqmusic.tc.qq.com
+  - amobile.music.tc.qq.com
+  - "*.xiami.com"
+  - "*.music.migu.cn"
+  - music.migu.cn
+  - "+.msftconnecttest.com"
+  - "+.msftncsi.com"
+  - localhost.ptlogin2.qq.com
+  - localhost.sec.qq.com
+  - "+.qq.com"
+  - "+.tencent.com"
+  - "+.srv.nintendo.net"
+  - "*.n.n.srv.nintendo.net"
+  - "+.cdn.nintendo.net"
+  - "+.stun.playstation.net"
+  - xbox.*.*.microsoft.com
+  - "*.*.xboxlive.com"
+  - xbox.*.microsoft.com
+  - xnotify.xboxlive.com
+  - "+.battle.net"
+  - "+.battlenet.com.cn"
+  - "+.wotgame.cn"
+  - "+.wggames.cn"
+  - "+.wowsgame.cn"
+  - "+.wargaming.net"
+  - proxy.golang.org
+  - stun.*.*
+  - stun.*.*.*
+  - "+.stun.*.*"
+  - "+.stun.*.*.*"
+  - "+.stun.*.*.*.*"
+  - "+.stun.*.*.*.*.*"
+  - heartbeat.belkin.com
+  - "*.linksys.com"
+  - "*.linksyssmartwifi.com"
+  - "*.router.asus.com"
+  - mesu.apple.com
+  - swscan.apple.com
+  - swquery.apple.com
+  - swdownload.apple.com
+  - swcdn.apple.com
+  - swdist.apple.com
+  - lens.l.google.com
+  - stun.l.google.com
+  - na.b.g-tun.com
+  - "+.nflxvideo.net"
+  - "*.square-enix.com"
+  - "*.finalfantasyxiv.com"
+  - "*.ffxiv.com"
+  - "*.ff14.sdo.com"
+  - ff.dorado.sdo.com
+  - "*.mcdn.bilivideo.cn"
+  - "+.media.dssott.com"
+  - shark007.net
+  - Mijia Cloud
+  - "+.cmbchina.com"
+  - "+.cmbimg.com"
+  - local.adguard.org
+  - "+.sandai.net"
+  - "+.n0808.com"
+  - "+.uu.163.com"
+  - ps.res.netease.com
+  - "+.pub.3gppnetwork.org"
+  - "+.services.googleapis.cn"
+  - "+.googleapis.cn"
+  - "+.xn--ngstr-lra8j.com"
+  - "+.clientservices.googleapis.com"
+  - geosite:cn
+  nameserver:
+  - 223.5.5.5#disable-ipv6=true
+  fallback:
+  - https://1.1.1.1/dns-query#DNS&disable-ipv6=true
+  - https://1.0.0.1/dns-query#DNS&disable-ipv6=true
+  - https://8.8.8.8/dns-query#DNS&disable-ipv6=true
+  default-nameserver:
+  - https://223.5.5.5#disable-ipv6=true
+  - https://223.5.5.5#disable-ipv6=true
+  fallback-filter:
+    geoip: true
+    geoip-code: CN
+    ipcidr:
+    - ::/128
+    - ::1/128
+    - 2001::/32
+    - 0.0.0.0/8
+    - 10.0.0.0/8
+    - 100.64.0.0/10
+    - 127.0.0.0/8
+    - 169.254.0.0/16
+    - 172.16.0.0/12
+    - 192.0.0.0/24
+    - 192.0.2.0/24
+    - 192.88.99.0/24
+    - 192.168.0.0/16
+    - 198.18.0.0/15
+    - 198.51.100.0/24
+    - 203.0.113.0/24
+    - 224.0.0.0/4
+    - 240.0.0.0/4
+    - 255.255.255.255/32
+    domain:
+    - "+.google.com"
+    - "+.facebook.com"
+    - "+.youtube.com"
+    - "+.githubusercontent.com"
+    - "+.googlevideo.com"
+    - "+.msftconnecttest.com"
+    - "+.msftncsi.com"
+  proxy-server-nameserver:
+  - https://223.5.5.5#disable-ipv6=true
+  - https://223.5.5.5#disable-ipv6=true
+  direct-nameserver:
+  - 223.5.5.5#disable-ipv6=true
+# ====== DYNAMIC: proxies ======
+proxies:
+  - {name: "🇭🇰 香港 01", type: "anytls", server: "PROXY_SERVER", port: 35101, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇭🇰 香港 02", type: "anytls", server: "PROXY_SERVER", port: 35102, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇭🇰 香港 03 [0.3X]", type: "anytls", server: "PROXY_SERVER", port: 35103, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇭🇰 香港 04", type: "anytls", server: "PROXY_SERVER", port: 35104, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇭🇰 香港 05", type: "anytls", server: "PROXY_SERVER", port: 35105, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇭🇰 香港 06", type: "anytls", server: "PROXY_SERVER", port: 35106, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇭🇰 香港 07", type: "anytls", server: "PROXY_SERVER", port: 35107, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇭🇰 香港 08", type: "anytls", server: "PROXY_SERVER", port: 35108, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇭🇰 香港 09", type: "anytls", server: "PROXY_SERVER", port: 35109, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇭🇰 香港 10", type: "anytls", server: "PROXY_SERVER", port: 35110, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇭🇰 香港 11", type: "anytls", server: "PROXY_SERVER", port: 35111, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇭🇰 香港 12", type: "anytls", server: "PROXY_SERVER", port: 35112, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇭🇰 香港 13 家宽", type: "anytls", server: "PROXY_SERVER", port: 35113, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇭🇰 香港 14 家宽", type: "anytls", server: "PROXY_SERVER", port: 35114, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇭🇰 香港 15 家宽", type: "anytls", server: "PROXY_SERVER", port: 35115, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇸🇬 新加坡 01 [0.3X]", type: "anytls", server: "PROXY_SERVER", port: 35121, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇸🇬 新加坡 02", type: "anytls", server: "PROXY_SERVER", port: 35122, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇸🇬 新加坡 03", type: "anytls", server: "PROXY_SERVER", port: 35123, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇸🇬 新加坡 04", type: "anytls", server: "PROXY_SERVER", port: 35124, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇸🇬 新加坡 05", type: "anytls", server: "PROXY_SERVER", port: 35125, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇸🇬 新加坡 06", type: "anytls", server: "PROXY_SERVER", port: 35126, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇸🇬 新加坡 07", type: "anytls", server: "PROXY_SERVER", port: 35127, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇸🇬 新加坡 08", type: "anytls", server: "PROXY_SERVER", port: 35128, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇸🇬 新加坡 09", type: "anytls", server: "PROXY_SERVER", port: 35129, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇸🇬 新加坡 10", type: "anytls", server: "PROXY_SERVER", port: 35130, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇸🇬 新加坡 11", type: "anytls", server: "PROXY_SERVER", port: 35131, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇸🇬 新加坡 12 家宽", type: "anytls", server: "PROXY_SERVER", port: 35132, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇨🇳 台湾 01 [0.3X]", type: "anytls", server: "PROXY_SERVER", port: 35141, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇨🇳 台湾 02", type: "anytls", server: "PROXY_SERVER", port: 35142, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇨🇳 台湾 03", type: "anytls", server: "PROXY_SERVER", port: 35143, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇨🇳 台湾 04", type: "anytls", server: "PROXY_SERVER", port: 35144, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇨🇳 台湾 05", type: "anytls", server: "PROXY_SERVER", port: 35145, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇨🇳 台湾 06", type: "anytls", server: "PROXY_SERVER", port: 35146, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇨🇳 台湾 07 家宽", type: "anytls", server: "PROXY_SERVER", port: 35148, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇨🇳 台湾 08 家宽", type: "anytls", server: "PROXY_SERVER", port: 35149, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇨🇳 台湾 09 家宽", type: "anytls", server: "PROXY_SERVER", port: 35150, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇲🇴 澳门 01 家宽", type: "anytls", server: "PROXY_SERVER", port: 35169, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇲🇴 澳门 02 家宽", type: "anytls", server: "PROXY_SERVER", port: 35170, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇵🇭 菲律宾 01", type: "anytls", server: "PROXY_SERVER", port: 35164, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇵🇭 菲律宾 02 家宽", type: "anytls", server: "PROXY_SERVER", port: 35165, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇲🇾 马来西亚 01 家宽", type: "anytls", server: "PROXY_SERVER", port: 35166, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇲🇾 马来西亚 02 家宽", type: "anytls", server: "PROXY_SERVER", port: 35167, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇲🇾 马来西亚 03 家宽", type: "anytls", server: "PROXY_SERVER", port: 35168, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇹🇭 泰国 01", type: "anytls", server: "PROXY_SERVER", port: 35171, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇹🇭 泰国 02 家宽", type: "anytls", server: "PROXY_SERVER", port: 35172, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇮🇳 印度 01", type: "anytls", server: "PROXY_SERVER", port: 35161, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇮🇳 印度 02", type: "anytls", server: "PROXY_SERVER", port: 35162, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇮🇩 印度尼西亚", type: "anytls", server: "PROXY_SERVER", port: 35163, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇻🇳 越南 家宽", type: "anytls", server: "PROXY_SERVER", port: 35173, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇰🇭 柬埔寨", type: "anytls", server: "PROXY_SERVER", port: 35174, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇧🇩 孟加拉国", type: "anytls", server: "PROXY_SERVER", port: 35175, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇳🇵 尼泊尔", type: "anytls", server: "PROXY_SERVER", port: 35176, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇲🇳 蒙古国 家宽", type: "anytls", server: "PROXY_SERVER", port: 35177, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇲🇲 缅甸", type: "anytls", server: "PROXY_SERVER", port: 35178, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇱🇦 老挝", type: "anytls", server: "PROXY_SERVER", port: 35179, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇰🇵 朝鲜", type: "anytls", server: "PROXY_SERVER", port: 35180, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇦🇺 澳大利亚 01", type: "anytls", server: "PROXY_SERVER", port: 35181, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇦🇺 澳大利亚 02 家宽", type: "anytls", server: "PROXY_SERVER", port: 35182, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇦🇺 澳大利亚 03 家宽", type: "anytls", server: "PROXY_SERVER", port: 35183, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇳🇿 新西兰 家宽", type: "anytls", server: "PROXY_SERVER", port: 35184, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇯🇵 日本 01 [0.3X]", type: "anytls", server: "PROXY_SERVER", port: 35201, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇯🇵 日本 02", type: "anytls", server: "PROXY_SERVER", port: 35202, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇯🇵 日本 03", type: "anytls", server: "PROXY_SERVER", port: 35203, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇯🇵 日本 04", type: "anytls", server: "PROXY_SERVER", port: 35204, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇯🇵 日本 05", type: "anytls", server: "PROXY_SERVER", port: 35205, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇯🇵 日本 06", type: "anytls", server: "PROXY_SERVER", port: 35206, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇯🇵 日本 07", type: "anytls", server: "PROXY_SERVER", port: 35207, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇯🇵 日本 08 家宽", type: "anytls", server: "PROXY_SERVER", port: 35208, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇯🇵 日本 09 家宽", type: "anytls", server: "PROXY_SERVER", port: 35209, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇯🇵 日本 10 家宽", type: "anytls", server: "PROXY_SERVER", port: 35210, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇯🇵 日本 11 家宽", type: "anytls", server: "PROXY_SERVER", port: 35211, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇯🇵 日本 12 家宽", type: "anytls", server: "PROXY_SERVER", port: 35212, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇰🇷 韩国 01", type: "anytls", server: "PROXY_SERVER", port: 35221, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇰🇷 韩国 02", type: "anytls", server: "PROXY_SERVER", port: 35222, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇰🇷 韩国 03 家宽", type: "anytls", server: "PROXY_SERVER", port: 35223, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇰🇷 韩国 04 家宽", type: "anytls", server: "PROXY_SERVER", port: 35224, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇰🇷 韩国 05 家宽", type: "anytls", server: "PROXY_SERVER", port: 35225, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇺🇸 美国 01", type: "anytls", server: "PROXY_SERVER", port: 35231, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇺🇸 美国 02", type: "anytls", server: "PROXY_SERVER", port: 35232, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇺🇸 美国 03", type: "anytls", server: "PROXY_SERVER", port: 35233, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇺🇸 美国 04", type: "anytls", server: "PROXY_SERVER", port: 35234, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇺🇸 美国 05", type: "anytls", server: "PROXY_SERVER", port: 35235, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇺🇸 美国 06", type: "anytls", server: "PROXY_SERVER", port: 35236, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇺🇸 美国 07", type: "anytls", server: "PROXY_SERVER", port: 35237, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇺🇸 美国 08", type: "anytls", server: "PROXY_SERVER", port: 35238, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇺🇸 美国 09", type: "anytls", server: "PROXY_SERVER", port: 35239, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇺🇸 美国 10 家宽", type: "anytls", server: "PROXY_SERVER", port: 35240, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇺🇸 美国 11 家宽", type: "anytls", server: "PROXY_SERVER", port: 35241, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇺🇸 美国 12 家宽", type: "anytls", server: "PROXY_SERVER", port: 35242, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇺🇸 美国 13 家宽", type: "anytls", server: "PROXY_SERVER", port: 35243, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇨🇦 加拿大 01 家宽", type: "anytls", server: "PROXY_SERVER", port: 35251, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇨🇦 加拿大 02 家宽", type: "anytls", server: "PROXY_SERVER", port: 35252, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇲🇽 墨西哥 01", type: "anytls", server: "PROXY_SERVER", port: 35253, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇲🇽 墨西哥 02 家宽", type: "anytls", server: "PROXY_SERVER", port: 35254, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇧🇷 巴西 01", type: "anytls", server: "PROXY_SERVER", port: 35255, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇧🇷 巴西 02", type: "anytls", server: "PROXY_SERVER", port: 35256, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇭🇳 洪都拉斯", type: "anytls", server: "PROXY_SERVER", port: 35257, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇨🇱 智利", type: "anytls", server: "PROXY_SERVER", port: 35258, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇦🇷 阿根廷 家宽", type: "anytls", server: "PROXY_SERVER", port: 35259, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇺🇾 乌拉圭 家宽", type: "anytls", server: "PROXY_SERVER", port: 35260, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇬🇫 法属圭亚那", type: "anytls", server: "PROXY_SERVER", port: 35261, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇨🇴 哥伦比亚", type: "anytls", server: "PROXY_SERVER", port: 35262, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇪🇨 厄瓜多尔 家宽", type: "anytls", server: "PROXY_SERVER", port: 35263, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇵🇪 秘鲁", type: "anytls", server: "PROXY_SERVER", port: 35264, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇧🇴 玻利维亚", type: "anytls", server: "PROXY_SERVER", port: 35265, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇩🇪 德国 01", type: "anytls", server: "PROXY_SERVER", port: 35301, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇩🇪 德国 02", type: "anytls", server: "PROXY_SERVER", port: 35302, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇩🇪 德国 03", type: "anytls", server: "PROXY_SERVER", port: 35303, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇩🇪 德国 04 家宽", type: "anytls", server: "PROXY_SERVER", port: 35304, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇬🇧 英国 01", type: "anytls", server: "PROXY_SERVER", port: 35311, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇬🇧 英国 02", type: "anytls", server: "PROXY_SERVER", port: 35312, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇬🇧 英国 03", type: "anytls", server: "PROXY_SERVER", port: 35313, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇬🇧 英国 04 家宽", type: "anytls", server: "PROXY_SERVER", port: 35314, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇫🇷 法国 01", type: "anytls", server: "PROXY_SERVER", port: 35321, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇫🇷 法国 02", type: "anytls", server: "PROXY_SERVER", port: 35322, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇫🇷 法国 03 家宽", type: "anytls", server: "PROXY_SERVER", port: 35323, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇳🇱 荷兰", type: "anytls", server: "PROXY_SERVER", port: 35331, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇪🇸 西班牙", type: "anytls", server: "PROXY_SERVER", port: 35332, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇮🇪 爱尔兰", type: "anytls", server: "PROXY_SERVER", port: 35333, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇮🇹 意大利", type: "anytls", server: "PROXY_SERVER", port: 35334, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇱🇺 卢森堡", type: "anytls", server: "PROXY_SERVER", port: 35335, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇨🇭 瑞士", type: "anytls", server: "PROXY_SERVER", port: 35336, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇩🇰 丹麦", type: "anytls", server: "PROXY_SERVER", port: 35337, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇫🇮 芬兰", type: "anytls", server: "PROXY_SERVER", port: 35338, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇸🇪 瑞典", type: "anytls", server: "PROXY_SERVER", port: 35339, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇳🇴 挪威", type: "anytls", server: "PROXY_SERVER", port: 35340, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇦🇹 奧地利", type: "anytls", server: "PROXY_SERVER", port: 35341, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇨🇿 捷克", type: "anytls", server: "PROXY_SERVER", port: 35342, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇸🇰 斯洛伐克", type: "anytls", server: "PROXY_SERVER", port: 35343, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇸🇮 斯洛文尼亚", type: "anytls", server: "PROXY_SERVER", port: 35344, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇭🇷 克罗地亚", type: "anytls", server: "PROXY_SERVER", port: 35345, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇮🇸 冰岛", type: "anytls", server: "PROXY_SERVER", port: 35346, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇹🇷 土耳其 家宽", type: "anytls", server: "PROXY_SERVER", port: 35347, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇧🇪 比利时", type: "anytls", server: "PROXY_SERVER", port: 35348, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇵🇹 葡萄牙", type: "anytls", server: "PROXY_SERVER", port: 35349, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇵🇱 波兰", type: "anytls", server: "PROXY_SERVER", port: 35350, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇱🇹 立陶宛", type: "anytls", server: "PROXY_SERVER", port: 35351, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇪🇪 爱沙尼亚", type: "anytls", server: "PROXY_SERVER", port: 35352, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇱🇻 拉脫维亚", type: "anytls", server: "PROXY_SERVER", port: 35353, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇭🇺 匈牙利", type: "anytls", server: "PROXY_SERVER", port: 35354, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇷🇺 俄罗斯", type: "anytls", server: "PROXY_SERVER", port: 35355, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇺🇦 乌克兰", type: "anytls", server: "PROXY_SERVER", port: 35356, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇲🇩 摩尔多瓦", type: "anytls", server: "PROXY_SERVER", port: 35357, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇷🇴 罗马尼亚", type: "anytls", server: "PROXY_SERVER", port: 35358, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇧🇬 保加利亚", type: "anytls", server: "PROXY_SERVER", port: 35359, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇷🇸 塞尔维亚", type: "anytls", server: "PROXY_SERVER", port: 35360, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇲🇰 北马其顿", type: "anytls", server: "PROXY_SERVER", port: 35361, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇮🇶 伊拉克", type: "anytls", server: "PROXY_SERVER", port: 35362, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇬🇷 希腊", type: "anytls", server: "PROXY_SERVER", port: 35363, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇲🇹 马耳他", type: "anytls", server: "PROXY_SERVER", port: 35364, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇮🇱 以色列", type: "anytls", server: "PROXY_SERVER", port: 35365, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇹🇿 坦桑尼亚", type: "anytls", server: "PROXY_SERVER", port: 35366, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇦🇿 阿塞拜疆", type: "anytls", server: "PROXY_SERVER", port: 35367, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇪🇬 埃及", type: "anytls", server: "PROXY_SERVER", port: 35368, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇦🇪 迪拜", type: "anytls", server: "PROXY_SERVER", port: 35401, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇸🇦 沙特阿拉伯", type: "anytls", server: "PROXY_SERVER", port: 35402, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇺🇿 乌茲別克", type: "anytls", server: "PROXY_SERVER", port: 35403, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇰🇿 哈萨克 家宽", type: "anytls", server: "PROXY_SERVER", port: 35405, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇰🇬 吉尔吉斯", type: "anytls", server: "PROXY_SERVER", port: 35406, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇹🇯 塔吉克", type: "anytls", server: "PROXY_SERVER", port: 35407, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇵🇰 巴基斯坦", type: "anytls", server: "PROXY_SERVER", port: 35408, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇧🇭 巴林 家宽", type: "anytls", server: "PROXY_SERVER", port: 35409, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇩🇿 阿尔及利亚", type: "anytls", server: "PROXY_SERVER", port: 35411, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇳🇬 尼日利亚 01", type: "anytls", server: "PROXY_SERVER", port: 35413, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇳🇬 尼日利亚 02", type: "anytls", server: "PROXY_SERVER", port: 35414, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇪🇹 埃塞俄比亚 家宽", type: "anytls", server: "PROXY_SERVER", port: 35415, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇦🇴 安哥拉", type: "anytls", server: "PROXY_SERVER", port: 35416, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇰🇪 肯尼亚", type: "anytls", server: "PROXY_SERVER", port: 35417, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇿🇦 南非", type: "anytls", server: "PROXY_SERVER", port: 35418, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇬🇱 格陵兰岛", type: "anytls", server: "PROXY_SERVER", port: 35419, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇦🇶 南极洲", type: "anytls", server: "PROXY_SERVER", port: 35420, password: PASSWORD, client-fingerprint: "chrome", sni: SNI_SERVER, skip-cert-verify: false}
+  - {name: "🇺🇸 SELF 01", server: "SERVER_IP", port: 443, type: "vless", udp: true, uuid: UUID, flow: "xtls-rprx-vision", packet-encoding: "xudp", tls: true, servername: SNI_SERVER, sni: SNI_SERVER, client-fingerprint: "firefox", reality-opts: {public-key: PUBLIC_KEY, short-id: SHORT_ID}, network: "tcp"}
+  - {name: "🇺🇸 SELF 02", server: "SELF_SERVER", port: 443, type: "hysteria2", password: PASSWORD, up: "100 Mbps", down: "1000 Mbps", obfs: "salamander", obfs-password: OBFS_PASSWORD, servername: SNI_SERVER, sni: SNI_SERVER, alpn: [h3]}
+
+# ====== MIXED: proxy-groups ======
+proxy-groups:
+- name: hongkong
+  type: url-test
+  proxies:
+  - 🇭🇰 香港 01
+  - 🇭🇰 香港 02
+  - 🇭🇰 香港 03 [0.3X]
+  - 🇭🇰 香港 04
+  - 🇭🇰 香港 05
+  - 🇭🇰 香港 06
+  - 🇭🇰 香港 07
+  - 🇭🇰 香港 08
+  - 🇭🇰 香港 09
+  - 🇭🇰 香港 10
+  - 🇭🇰 香港 11
+  - 🇭🇰 香港 12
+  - 🇭🇰 香港 13 家宽
+  - 🇭🇰 香港 14 家宽
+  - 🇭🇰 香港 15 家宽
+  url: http://www.gstatic.com/generate_204
+  interval: 300
+- name: macao
+  type: url-test
+  proxies:
+  - 🇲🇴 澳门 01 家宽
+  - 🇲🇴 澳门 02 家宽
+  url: http://www.gstatic.com/generate_204
+  interval: 300
+- name: taiwan
+  type: url-test
+  proxies:
+  - 🇨🇳 台湾 01 [0.3X]
+  - 🇨🇳 台湾 02
+  - 🇨🇳 台湾 03
+  - 🇨🇳 台湾 04
+  - 🇨🇳 台湾 05
+  - 🇨🇳 台湾 06
+  - 🇨🇳 台湾 07 家宽
+  - 🇨🇳 台湾 08 家宽
+  - 🇨🇳 台湾 09 家宽
+  url: http://www.gstatic.com/generate_204
+  interval: 300
+- name: japan
+  type: url-test
+  proxies:
+  - 🇯🇵 日本 01 [0.3X]
+  - 🇯🇵 日本 02
+  - 🇯🇵 日本 03
+  - 🇯🇵 日本 04
+  - 🇯🇵 日本 05
+  - 🇯🇵 日本 06
+  - 🇯🇵 日本 07
+  - 🇯🇵 日本 08 家宽
+  - 🇯🇵 日本 09 家宽
+  - 🇯🇵 日本 10 家宽
+  - 🇯🇵 日本 11 家宽
+  - 🇯🇵 日本 12 家宽
+  url: http://www.gstatic.com/generate_204
+  interval: 300
+- name: korea
+  type: url-test
+  proxies:
+  - 🇰🇷 韩国 01
+  - 🇰🇷 韩国 02
+  - 🇰🇷 韩国 03 家宽
+  - 🇰🇷 韩国 04 家宽
+  - 🇰🇷 韩国 05 家宽
+  url: http://www.gstatic.com/generate_204
+  interval: 300
+- name: singapore
+  type: url-test
+  proxies:
+  - 🇸🇬 新加坡 01 [0.3X]
+  - 🇸🇬 新加坡 02
+  - 🇸🇬 新加坡 03
+  - 🇸🇬 新加坡 04
+  - 🇸🇬 新加坡 05
+  - 🇸🇬 新加坡 06
+  - 🇸🇬 新加坡 07
+  - 🇸🇬 新加坡 08
+  - 🇸🇬 新加坡 09
+  - 🇸🇬 新加坡 10
+  - 🇸🇬 新加坡 11
+  - 🇸🇬 新加坡 12 家宽
+  url: http://www.gstatic.com/generate_204
+  interval: 300
+- name: america
+  type: url-test
+  proxies:
+  - 🇺🇸 美国 01
+  - 🇺🇸 美国 02
+  - 🇺🇸 美国 03
+  - 🇺🇸 美国 04
+  - 🇺🇸 美国 05
+  - 🇺🇸 美国 06
+  - 🇺🇸 美国 07
+  - 🇺🇸 美国 08
+  - 🇺🇸 美国 09
+  - 🇺🇸 美国 10 家宽
+  - 🇺🇸 美国 11 家宽
+  - 🇺🇸 美国 12 家宽
+  - 🇺🇸 美国 13 家宽
+  url: http://www.gstatic.com/generate_204
+  interval: 300
+- name: self
+  type: select
+  proxies:
+  - 🇺🇸 SELF 01
+  - 🇺🇸 SELF 02
+- name: others
+  type: select
+  proxies:
+  - 🇵🇭 菲律宾 01
+  - 🇵🇭 菲律宾 02 家宽
+  - 🇲🇾 马来西亚 01 家宽
+  - 🇲🇾 马来西亚 02 家宽
+  - 🇲🇾 马来西亚 03 家宽
+  - 🇹🇭 泰国 01
+  - 🇹🇭 泰国 02 家宽
+  - 🇮🇳 印度 01
+  - 🇮🇳 印度 02
+  - 🇮🇩 印度尼西亚
+  - 🇻🇳 越南 家宽
+  - 🇰🇭 柬埔寨
+  - 🇧🇩 孟加拉国
+  - 🇳🇵 尼泊尔
+  - 🇲🇳 蒙古国 家宽
+  - 🇲🇲 缅甸
+  - 🇱🇦 老挝
+  - 🇰🇵 朝鲜
+  - 🇦🇺 澳大利亚 01
+  - 🇦🇺 澳大利亚 02 家宽
+  - 🇦🇺 澳大利亚 03 家宽
+  - 🇳🇿 新西兰 家宽
+  - 🇨🇦 加拿大 01 家宽
+  - 🇨🇦 加拿大 02 家宽
+  - 🇲🇽 墨西哥 01
+  - 🇲🇽 墨西哥 02 家宽
+  - 🇧🇷 巴西 01
+  - 🇧🇷 巴西 02
+  - 🇭🇳 洪都拉斯
+  - 🇨🇱 智利
+  - 🇦🇷 阿根廷 家宽
+  - 🇺🇾 乌拉圭 家宽
+  - 🇬🇫 法属圭亚那
+  - 🇨🇴 哥伦比亚
+  - 🇪🇨 厄瓜多尔 家宽
+  - 🇵🇪 秘鲁
+  - 🇧🇴 玻利维亚
+  - 🇩🇪 德国 01
+  - 🇩🇪 德国 02
+  - 🇩🇪 德国 03
+  - 🇩🇪 德国 04 家宽
+  - 🇬🇧 英国 01
+  - 🇬🇧 英国 02
+  - 🇬🇧 英国 03
+  - 🇬🇧 英国 04 家宽
+  - 🇫🇷 法国 01
+  - 🇫🇷 法国 02
+  - 🇫🇷 法国 03 家宽
+  - 🇳🇱 荷兰
+  - 🇪🇸 西班牙
+  - 🇮🇪 爱尔兰
+  - 🇮🇹 意大利
+  - 🇱🇺 卢森堡
+  - 🇨🇭 瑞士
+  - 🇩🇰 丹麦
+  - 🇫🇮 芬兰
+  - 🇸🇪 瑞典
+  - 🇳🇴 挪威
+  - 🇦🇹 奧地利
+  - 🇨🇿 捷克
+  - 🇸🇰 斯洛伐克
+  - 🇸🇮 斯洛文尼亚
+  - 🇭🇷 克罗地亚
+  - 🇮🇸 冰岛
+  - 🇹🇷 土耳其 家宽
+  - 🇧🇪 比利时
+  - 🇵🇹 葡萄牙
+  - 🇵🇱 波兰
+  - 🇱🇹 立陶宛
+  - 🇪🇪 爱沙尼亚
+  - 🇱🇻 拉脫维亚
+  - 🇭🇺 匈牙利
+  - 🇷🇺 俄罗斯
+  - 🇺🇦 乌克兰
+  - 🇲🇩 摩尔多瓦
+  - 🇷🇴 罗马尼亚
+  - 🇧🇬 保加利亚
+  - 🇷🇸 塞尔维亚
+  - 🇲🇰 北马其顿
+  - 🇮🇶 伊拉克
+  - 🇬🇷 希腊
+  - 🇲🇹 马耳他
+  - 🇮🇱 以色列
+  - 🇹🇿 坦桑尼亚
+  - 🇦🇿 阿塞拜疆
+  - 🇪🇬 埃及
+  - 🇦🇪 迪拜
+  - 🇸🇦 沙特阿拉伯
+  - 🇺🇿 乌茲別克
+  - 🇰🇿 哈萨克 家宽
+  - 🇰🇬 吉尔吉斯
+  - 🇹🇯 塔吉克
+  - 🇵🇰 巴基斯坦
+  - 🇧🇭 巴林 家宽
+  - 🇩🇿 阿尔及利亚
+  - 🇳🇬 尼日利亚 01
+  - 🇳🇬 尼日利亚 02
+  - 🇪🇹 埃塞俄比亚 家宽
+  - 🇦🇴 安哥拉
+  - 🇰🇪 肯尼亚
+  - 🇿🇦 南非
+  - 🇬🇱 格陵兰岛
+  - 🇦🇶 南极洲
+- name: youtube
+  type: fallback
+  proxies:
+  - hongkong
+  - macao
+  - taiwan
+  - japan
+  - singapore
+  - korea
+  - america
+  - self
+  url: http://www.gstatic.com/generate_204
+  interval: 300
+- name: google
+  type: fallback
+  proxies:
+  - hongkong
+  - macao
+  - taiwan
+  - japan
+  - singapore
+  - korea
+  - america
+  - self
+  url: http://www.gstatic.com/generate_204
+  interval: 300
+- name: github
+  type: fallback
+  proxies:
+  - japan
+  - hongkong
+  - macao
+  - singapore
+  - korea
+  - america
+  - taiwan
+  - self
+  - DIRECT
+  url: http://www.gstatic.com/generate_204
+  interval: 300
+- name: telegram
+  type: fallback
+  proxies:
+  - singapore
+  - hongkong
+  - macao
+  - japan
+  - korea
+  - taiwan
+  - america
+  - self
+  url: http://www.gstatic.com/generate_204
+  interval: 300
+- name: overseaai
+  type: fallback
+  proxies:
+  - america
+  - japan
+  - singapore
+  - korea
+  - taiwan
+  - hongkong
+  - macao
+  - self
+  url: http://www.gstatic.com/generate_204
+  interval: 300
+- name: dns
+  type: fallback
+  proxies:
+  - japan
+  - hongkong
+  - macao
+  - singapore
+  - korea
+  - taiwan
+  - america
+  - self
+  - DIRECT
+  url: http://www.gstatic.com/generate_204
+  interval: 300
+- name: cdn
+  type: fallback
+  proxies:
+  - hongkong
+  - macao
+  - japan
+  - singapore
+  - taiwan
+  - korea
+  - america
+  - self
+  - DIRECT
+  url: http://www.gstatic.com/generate_204
+  interval: 300
+- name: apple
+  type: fallback
+  proxies:
+  - hongkong
+  - macao
+  - japan
+  - taiwan
+  - singapore
+  - korea
+  - america
+  - self
+  - DIRECT
+  url: http://www.gstatic.com/generate_204
+  interval: 300
+- name: microsoft
+  type: fallback
+  proxies:
+  - hongkong
+  - macao
+  - japan
+  - singapore
+  - taiwan
+  - korea
+  - america
+  - self
+  - DIRECT
+  url: http://www.gstatic.com/generate_204
+  interval: 300
+- name: games
+  type: fallback
+  proxies:
+  - japan
+  - hongkong
+  - macao
+  - singapore
+  - korea
+  - taiwan
+  - america
+  - self
+  url: http://www.gstatic.com/generate_204
+  interval: 300
+- name: final
+  type: fallback
+  proxies:
+  - hongkong
+  - macao
+  - taiwan
+  - japan
+  - singapore
+  - korea
+  - america
+  - self
+  - DIRECT
+  url: http://www.gstatic.com/generate_204
+  interval: 300
+
+# ====== DYNAMIC: rules ======
+rules:
+  - GEOSITE,category-ads-all,REJECT
+  - DOMAIN-SUFFIX,bilivideo.com,REJECT
+  - DOMAIN-SUFFIX,biliapi.net,REJECT
+  - DOMAIN-KEYWORD,adservice,REJECT
+  - DOMAIN-KEYWORD,analytics,REJECT
+  - DOMAIN-KEYWORD,tracking,REJECT
+  - DOMAIN-KEYWORD,metrics,REJECT
+  - DOMAIN-KEYWORD,crashlytics,REJECT
+  - DOMAIN-KEYWORD,adjust,REJECT
+  - DOMAIN-KEYWORD,appsflyer,REJECT
+  - DOMAIN-KEYWORD,bugsnag,REJECT
+  - DOMAIN-KEYWORD,umeng,REJECT
+  - DOMAIN-KEYWORD,flurry,REJECT
+  - DOMAIN-KEYWORD,kochava,REJECT
+  - DOMAIN-KEYWORD,segment,REJECT
+  - DOMAIN-KEYWORD,smartadserver,REJECT
+  - DOMAIN-KEYWORD,doubleclick,REJECT
+  - DOMAIN-KEYWORD,googletagmanager,REJECT
+  - DOMAIN-KEYWORD,googletagservices,REJECT
+  - DOMAIN-KEYWORD,admob,REJECT
+  - DOMAIN-KEYWORD,adsystem,REJECT
+  - DOMAIN-KEYWORD,adnxs,REJECT
+  - DOMAIN-KEYWORD,scorecardresearch,REJECT
+  - DOMAIN-KEYWORD,quantserve,REJECT
+  - DOMAIN-KEYWORD,zedo,REJECT
+  - DOMAIN-KEYWORD,adcolony,REJECT
+  - DOMAIN-KEYWORD,tapjoy,REJECT
+  - DOMAIN-KEYWORD,chartboost,REJECT
+  - DOMAIN-KEYWORD,vungle,REJECT
+  - DOMAIN-KEYWORD,ironsource,REJECT
+  - DOMAIN-KEYWORD,applovin,REJECT
+  - DOMAIN-KEYWORD,unityads,REJECT
+  - DOMAIN-KEYWORD,inmobi,REJECT
+  - DOMAIN-KEYWORD,mopub,REJECT
+  - DOMAIN-KEYWORD,adform,REJECT
+  - DOMAIN-KEYWORD,openx,REJECT
+  - DOMAIN-KEYWORD,rubiconproject,REJECT
+  - DOMAIN-KEYWORD,spotxchange,REJECT
+  - DOMAIN-KEYWORD,yieldmo,REJECT
+  - DOMAIN-KEYWORD,revcontent,REJECT
+  - DOMAIN-KEYWORD,outbrain,REJECT
+  - DOMAIN-KEYWORD,taboola,REJECT
+  - DOMAIN-KEYWORD,mgid,REJECT
+  - DOMAIN-KEYWORD,adroll,REJECT
+  - DOMAIN-KEYWORD,criteo,REJECT
+  - DOMAIN-KEYWORD,mediamath,REJECT
+  - DOMAIN-KEYWORD,rocketfuel,REJECT
+  - DOMAIN-KEYWORD,bluekai,REJECT
+  - DOMAIN-KEYWORD,exelator,REJECT
+  - DOMAIN-KEYWORD,eyeota,REJECT
+  - DOMAIN-KEYWORD,lotame,REJECT
+  - DOMAIN-KEYWORD,nielsen,REJECT
+  - DOMAIN-KEYWORD,comscore,REJECT
+  - DOMAIN-KEYWORD,moatads,REJECT
+  - DOMAIN-KEYWORD,serving-sys,REJECT
+  - DOMAIN-KEYWORD,scorecard,REJECT
+  - DOMAIN-KEYWORD,adtech,REJECT
+  - DOMAIN-KEYWORD,advertising,REJECT
+  - DOMAIN-KEYWORD,adserver,REJECT
+  - DOMAIN-KEYWORD,adservice,REJECT
+  - AND,((NETWORK,UDP),(DST-PORT,443)),REJECT
+  - DOMAIN-SUFFIX,cntt.cc,DIRECT
+  - DOMAIN-SUFFIX,icc.pp.ua,DIRECT
+  - DOMAIN-SUFFIX,ec.edu.kg,DIRECT
+  - DOMAIN-SUFFIX,070405.xyz,DIRECT
+  - DST-PORT,123,apple
+  - GEOSITE,apple-cn,DIRECT
+  - GEOSITE,apple,apple
+  - GEOSITE,telegram,telegram
+  - GEOSITE,discord,singapore
+  - GEOSITE,category-ai-cn,DIRECT
+  - GEOSITE,openai,overseaai
+  - GEOSITE,anthropic,overseaai
+  - GEOSITE,google-deepmind,overseaai
+  - GEOSITE,bytedance-ai-!cn,overseaai
+  - GEOSITE,category-ai-!cn,overseaai
+  - GEOSITE,youtube,youtube
+  - DOMAIN-SUFFIX,gvt1.com,google
+  - DOMAIN-SUFFIX,gvt2.com,google
+  - DOMAIN-SUFFIX,gvt3.com,google
+  - DOMAIN-SUFFIX,xn--ngstr-lra8j.com,google
+  - GEOSITE,google-play,google
+  - GEOSITE,google@cn,DIRECT
+  - GEOSITE,google,google
+  - GEOSITE,bing,google
+  - GEOSITE,github,github
+  - GEOSITE,onedrive,microsoft
+  - GEOSITE,microsoft,microsoft
+  - GEOSITE,category-games@cn,DIRECT
+  - GEOSITE,category-games-!cn,games
+  - GEOSITE,category-cdn-cn,DIRECT
+  - GEOSITE,category-cdn-!cn,cdn
+  - GEOSITE,jsdelivr,cdn
+  - DOMAIN-SUFFIX,jp,japan
+  - GEOIP,CN,DIRECT,no-resolve
+  - GEOIP,HK,hongkong,no-resolve
+  - GEOIP,JP,japan,no-resolve
+  - GEOIP,US,america,no-resolve
+  - IP-ASN,13335,cdn
+  - MATCH,final

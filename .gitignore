@@ -225,3 +225,4 @@ sub2cfg/sample/real-*
 .codegraph/
 **/.DS_Store
 .tokensave
+.code-review-graph/

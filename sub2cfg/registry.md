@@ -73,12 +73,12 @@ name: sub2cfg 模块清单
 | Emoji | 组名 | 节点名格式 |
 |-------|------|-----------|
 | 🇭🇰 | hongkong | `🇭🇰 香港 NN` |
-| 🇲🇴 | macau | `🇲🇴 澳门 NN` |
+| 🇲🇴 | macao | `🇲🇴 澳门 NN` |
 | 🇨🇳 | taiwan | `🇨🇳 台湾 NN` |
 | 🇯🇵 | japan | `🇯🇵 日本 NN` |
 | 🇰🇷 | korea | `🇰🇷 韩国 NN` |
 | 🇸🇬 | singapore | `🇸🇬 新加坡 NN` |
-| 🇺🇸 | us | `🇺🇸 美国 NN` |
+| 🇺🇸 | america | `🇺🇸 美国 NN` |
 | 其他 | others | 自动归集 |
 
 ## 添加新订阅格式的步骤

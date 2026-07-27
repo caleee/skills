@@ -1,0 +1,221 @@
+# ====== STATIC: global ======
+global {
+    tproxy_port: 12345
+    tproxy_port_protect: true
+    so_mark_from_dae: 123
+    log_level: info
+    tcp_check_url: 'http://cp.cloudflare.com,1.1.1.1'
+    tcp_check_http_method: HEAD
+    udp_check_dns: '1.1.1.1,1.0.0.1'
+    check_interval: 30s
+    check_tolerance: 50s
+    lan_interface: br-lan
+    wan_interface: auto
+    allow_insecure: false
+    dial_mode: domain
+    disable_waiting_network: false
+    disable_thp: true
+    enable_local_tcp_fast_redirect: true
+    auto_config_kernel_parameter: true
+    auto_config_firewall_rule: true
+    sniffing_timeout: 100ms
+    tls_implementation: tls
+    utls_imitate: chrome_auto
+    tls_fragment: false
+    tls_fragment_length: '50-100'
+    tls_fragment_interval: '10-20'
+    pprof_port: 0
+    mptcp: false
+    bootstrap_resolver: ''
+    fallback_resolver: '8.8.8.8:53'
+    bandwidth_max_tx: '200 mbps'
+    bandwidth_max_rx: '1 gbps'
+    udphop_interval: 30s
+    bpf_conn_state_map_size: 262144
+}
+
+# ====== STATIC: dns ======
+dns {
+    ipversion_prefer: 4
+
+    upstream {
+        daliantelecom: 'udp://223.5.5.5:53'
+        cloudflare: 'https://1.1.1.1:443'
+    }
+    
+    routing {
+        request {
+            qname(geosite:category-ads-all) -> reject
+            qname(geosite:cn) -> daliantelecom
+            qname(geosite:google@cn) -> daliantelecom
+            qname(geosite:apple) -> daliantelecom
+            fallback: cloudflare
+        }
+        response {
+            upstream(cloudflare) -> accept
+            ip(geoip:private) && !qname(geosite:cn) -> cloudflare
+            fallback: accept
+        }
+    }
+}
+
+# ====== DYNAMIC: subscription ======
+subscription {
+    self: 'file://subscriptions/airport_sub'
+    macao: 'file://subscriptions/airport_sub'
+    hongkong: 'file://subscriptions/airport_sub'
+    singapore: 'file://subscriptions/airport_sub'
+    taiwan: 'file://subscriptions/airport_sub'
+    japan: 'file://subscriptions/airport_sub'
+    korea: 'file://subscriptions/airport_sub'
+    america: 'file://subscriptions/airport_sub'
+}
+
+# ====== DYNAMIC: node ======
+node {
+}
+
+# ====== MIXED: group ======
+group {
+    america {
+        filter: subtag(america)
+        policy: 'min_moving_avg'
+    }
+    self {
+        filter: subtag(self)
+        policy: 'min_moving_avg'
+    }
+    hongkong {
+        filter: subtag(hongkong)
+        policy: 'min_moving_avg'
+    }
+    japan {
+        filter: subtag(japan)
+        policy: 'min_moving_avg'
+    }
+    korea {
+        filter: subtag(korea)
+        policy: 'min_moving_avg'
+    }
+    macao {
+        filter: subtag(macao)
+        policy: 'min_moving_avg'
+    }
+    taiwan {
+        filter: subtag(taiwan)
+        policy: 'min_moving_avg'
+    }
+    singapore {
+        filter: subtag(singapore)
+        policy: 'min_moving_avg'
+    }
+    dns {
+        filter: subtag(america, hongkong, japan, korea, macao, taiwan, singapore)
+        filter: subtag(self) [add_latency: +500ms]
+        policy: min_moving_avg
+        tcp_check_url: 'https://1.1.1.1'
+    }
+    overseaai {
+        filter: subtag(america, hongkong, japan, korea, macao, taiwan, singapore)
+        filter: subtag(self) [add_latency: +500ms]
+        policy: min_moving_avg
+        tcp_check_url: 'https://chatgpt.com'
+    }
+    github {
+        filter: subtag(america, hongkong, japan, korea, macao, taiwan, singapore)
+        filter: subtag(self) [add_latency: +500ms]
+        policy: min_moving_avg
+        tcp_check_url: 'https://github.com'
+    }
+    youtube {
+        filter: subtag(america, hongkong, japan, korea, macao, taiwan, singapore)
+        filter: subtag(self) [add_latency: +500ms]
+        policy: min_moving_avg
+        tcp_check_url: 'https://www.youtube.com/generate_204'
+    }
+    google {
+        filter: subtag(america, hongkong, japan, korea, macao, taiwan, singapore)
+        filter: subtag(self) [add_latency: +500ms]
+        policy: min_moving_avg
+        tcp_check_url: 'https://www.gstatic.com/generate_204'
+    }
+    telegram {
+        filter: subtag(america, hongkong, japan, korea, macao, taiwan, singapore)
+        filter: subtag(self) [add_latency: +500ms]
+        policy: min_moving_avg
+        tcp_check_url: 'https://telegram.org'
+    }
+    apple {
+        filter: subtag(america, hongkong, japan, korea, macao, taiwan, singapore)
+        filter: subtag(self) [add_latency: +500ms]
+        policy: min_moving_avg
+        tcp_check_url: 'https://www.apple.com'
+    }
+    microsoft {
+        filter: subtag(america, hongkong, japan, korea, macao, taiwan, singapore)
+        filter: subtag(self) [add_latency: +500ms]
+        policy: min_moving_avg
+        tcp_check_url: 'https://www.microsoft.com'
+    }
+    cdn {
+        filter: subtag(america, hongkong, japan, korea, macao, taiwan, singapore)
+        filter: subtag(self) [add_latency: +500ms]
+        policy: min_moving_avg
+        tcp_check_url: 'https://cp.cloudflare.com/generate_204'
+    }
+    final {
+        filter: subtag(america, hongkong, japan, korea, macao, taiwan, singapore)
+        filter: subtag(self) [add_latency: +500ms]
+        policy: min_moving_avg
+        tcp_check_url: 'https://cp.cloudflare.com/generate_204'
+    }
+}
+# ====== STATIC: routing ======
+routing {
+    pname(NetworkManager, systemd-resolved, dnsmasq, mosdns, AdGuardHome, easytier, easytier-cli, easytier-core) -> must_direct
+    sip(PRIVATE_IP, 10.10.10.9, 10.10.10.1, 10.10.0.1) && l4proto(udp, tcp) && dport(53) -> must_direct
+    dip(223.5.5.5, 223.6.6.6, 119.29.29.29, 180.76.76.76, 114.114.114.114, 114.114.115.115, 8.211.155.65) -> must_direct
+    dip(8.8.8.8, 8.8.4.4, 1.1.1.1, 1.0.0.1, 1.1.1.2, 1.0.0.2, 104.16.249.249, 104.16.248.249, 104.16.133.229, 104.16.132.229, 94.140.14.14, 94.140.15.15, 9.9.9.9, 9.9.9.11, 149.112.112.112, 149.112.112.11) -> dns
+    l4proto(udp) && dport(443) -> block
+    dport(853) -> block
+    dip(202.214.238.0/24) && dport(12310-12312) -> block
+    dport(12310-12312) -> direct
+    l4proto(udp) && dport(123) -> direct
+    dip(geoip:private) -> must_direct
+    domain(geosite:private) -> must_direct
+    domain(geosite:tld-cn) -> must_direct
+    domain(suffix: dns.alidns.com, suffix: doh.pub, suffix: dot.pub, suffix: clash.razord.top, suffix: yacd.metacubex.one, suffix: yacd.haishan.me, suffix: d.metacubex.one, suffix: metacubexd.pages.dev, suffix: cdn.jsdelivr.net, suffix: fastly.jsdelivr.net, suffix: testingcf.jsdelivr.net, suffix: ghproxy.com, suffix: gh-proxy.com, suffix: ghproxy.net, suffix: mirror.ghproxy.com, suffix: ghp.ci, suffix: ghproxy.cc, suffix: asiayun.com, suffix: imgcache.yyyisp.com, suffix: example.com, suffix: example.com, suffix: example.com) -> must_direct
+    domain(suffix: dns.google.com, suffix: dns.google, suffix: cloudflare-dns.com, suffix: dns.cloudflare.com, suffix: security.cloudflare-dns.com, suffix: one.one.one.one, suffix: 1dot1dot1dot1.cloudflare-dns.com, suffix: dns.adguard-dns.com, suffix: family.adguard-dns.com, suffix: 0ms.dev, suffix: doh.opendns.com, suffix: dns.mullvad.net, suffix: dns.nextdns.io, suffix: anycast.dns.nextdns.io, suffix: dns.quad9.net, suffix: dns11.quad9.net, suffix: dns.rabbitdns.org, suffix: dns.twnic.tw, suffix: basic.rethinkdns.com, suffix: dns.controld.com) -> dns
+    domain(suffix: igoutu.cn, suffix: speedtest.net, suffix: cpu-monkey.com, suffix: theporndude.com) -> japan
+    domain(suffix: pathofexile.com) -> america
+    domain(geosite:category-ads-all) -> block
+    domain(suffix: mcdn.bilivideo.cn, suffix: szbdyd.com) -> block
+    domain(regex: 'cn-[a-zA-Z0-9-]+\.bilivideo\.com', regex: '[a-zA-Z0-9-]+-pcdn-[a-zA-Z0-9-]+\.biliapi\.net') -> block
+    domain(geosite:github) -> github
+    domain(geosite:category-ai-cn) -> must_direct
+    domain(geosite:openai, geosite:anthropic, geosite:bytedance-ai-!cn, geosite:category-ai-!cn) -> overseaai
+    domain(geosite:youtube) -> youtube
+    domain(geosite:google@cn) -> must_direct
+    domain(geosite:google, geosite:googlefcm) -> google
+    domain(geosite:telegram) -> telegram
+    domain(geosite:apple-cn) -> must_direct
+    domain(geosite:apple) -> apple
+    domain(geosite:category-games@cn) -> must_direct
+    domain(geosite:category-games-!cn) -> hongkong
+    domain(geosite:onedrive) -> microsoft
+    domain(geosite:microsoft) -> microsoft
+    domain(geosite:category-cdn-cn) -> must_direct
+    domain(geosite:category-cdn-!cn) -> cdn
+    dip(geoip:cloudflare) -> cdn
+    domain(geosite:bilibili) -> must_direct
+    domain(suffix: .jp) -> japan
+    domain(suffix: .tw) -> taiwan
+    domain(geosite:geolocation-cn) -> must_direct
+    domain(geosite:cn) -> must_direct
+    dip(geoip:cn) -> must_direct
+    dip(geoip:jp) -> japan
+    domain(geosite:gfw) -> final
+    domain(geosite:greatfire) -> final
+    domain(geosite:geolocation-!cn) -> final
+    fallback: final
+}

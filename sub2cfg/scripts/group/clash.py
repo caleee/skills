@@ -1,54 +1,38 @@
 """
-Clash 策略组生成
+Clash 策略组生成 — 只生成区域组和自建组。
+
+服务组、规则、DNS 等由用户提供的模板配置决定，sub2cfg 只负责
+替换模板中的动态部分（节点列表 + 区域组）。
 """
 
 from group_builder import build_base_groups
 
-# 默认服务策略组：这些是用户常用的特定服务分类，与按区域分组互补。
-# 新增或移除服务时只需修改此处列表。
-DEFAULT_SERVICE_GROUPS = [
-    'DNS', 'OverseaAI', 'Bing', 'YouTube', 'Google',
-    'GitHub', 'Telegram', 'Apple', 'OneDrive', 'Microsoft',
-    'Games', 'Discord', 'Cloudflare',
-]
 
+def build_groups(nodes: list, self_nodes: list | None = None) -> list:
+    """生成 Clash proxy-groups — 仅区域组
 
-def build_groups(nodes: list) -> list:
-    """生成 Clash proxy-groups 列表"""
-    base = build_base_groups(nodes, DEFAULT_SERVICE_GROUPS)
+    区域组：url-test 自动测速选最优节点
+    自建组：select 手动选择
+    others 组：select 手动选择
+    """
+    base = build_base_groups(nodes, self_nodes=self_nodes)
 
     groups = []
 
-    # 1. PROXIES — 主选择组
-    groups.append({
-        'name': 'PROXIES',
-        'type': 'select',
-        'proxies': ['DIRECT'] + base['proxies'],
-    })
-
-    # 2. 服务策略组
-    for sg in base['service_groups']:
-        groups.append({
-            'name': sg,
-            'type': 'select',
-            'proxies': ['DIRECT', 'PROXIES'] + base['region_names'] + ['FINAL'],
-        })
-
-    # 3. 区域 url-test 组（others 也用 url-test）
     for r in base['region_names']:
-        groups.append({
-            'name': r,
-            'type': 'url-test',
-            'proxies': base['regions'][r],
-            'url': 'https://www.gstatic.com/generate_204',
-            'interval': 300,
-        })
-
-    # 4. FINAL — 兜底组
-    groups.append({
-        'name': 'FINAL',
-        'type': 'select',
-        'proxies': ['DIRECT', 'PROXIES'] + base['region_names'],
-    })
+        if r in ('self', 'others'):
+            groups.append({
+                'name': r,
+                'type': 'select',
+                'proxies': base['regions'][r],
+            })
+        else:
+            groups.append({
+                'name': r,
+                'type': 'url-test',
+                'proxies': base['regions'][r],
+                'url': 'http://www.gstatic.com/generate_204',
+                'interval': 300,
+            })
 
     return groups
