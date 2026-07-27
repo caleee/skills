@@ -14,7 +14,7 @@ name: sub2cfg 模块清单
 | Surge | 包含 `[Proxy]` 段且有 `udp-relay` | 解析 `name = protocol, server, port, ...` 格式 | 已支持 |
 | Loon | 包含 `[Proxy]` 段且无 `udp-relay` | 解析 `name = protocol, server, port, ...` 格式 | 已支持 |
 | Shadowrocket | 行以 `ss://` 或 `trojan://` 开头 | 解析 URI 格式 | 已支持 |
-| Base64 编码 | 需显式 `-f base64-uri`（自动检测时 base64 内容会被识别为 shadowrocket） | base64 解码后递归检测 | 已支持 |
+| Base64 编码 | 自动检测：base64 解码后内容为 URI 格式时返 `base64-uri`；也可 `-f base64-uri` 强制指定 | base64 解码后递归检测 | 已支持 |
 | Sing-box JSON | 包含 `"outbounds"` 段 | 解析 JSON outbounds 数组 | 已支持 |
 
 ## 格式定义（spec）
@@ -23,6 +23,7 @@ name: sub2cfg 模块清单
 
 | 文件 | 平台 | 协议 | 参考文档 |
 |------|------|------|----------|
+| spec/clash.proxy-format.md | Clash (Mihomo) | 统一中间格式 | 字段规范，所有提取器/转换器共享 |
 | spec/clash.anytls.md | Clash (Mihomo) | anytls | https://wiki.metacubex.one/config/proxies/anytls/ |
 | spec/clash.ss.md | Clash (Mihomo) | ss | https://wiki.metacubex.one/config/proxies/ss/ |
 | spec/clash.trojan.md | Clash (Mihomo) | trojan | https://wiki.metacubex.one/config/proxies/trojan/ |
@@ -67,15 +68,18 @@ name: sub2cfg 模块清单
 
 ## 区域映射表
 
-所有组生成规则共享此区域映射，新增区域时只需更新此处。
+所有组生成规则共享此区域映射。7 个常用组各生成一个 url-test 策略组，非这 7 个区域的节点自动归入 `others` 组。
 
-| Emoji | 区域代码 | 组名 | 节点名格式 |
-|-------|----------|------|-----------|
-| 🇭🇰 | HK | 香港 | `🇭🇰 香港 NN` |
-| 🇺🇸 | US | 美国 | `🇺🇸 美国 NN` |
-| 🇯🇵 | JP | 日本 | `🇯🇵 日本 NN` |
-| 🇸🇬 | SG | 狮城 | `🇸🇬 狮城 NN` |
-| 🇨🇳 | TW | 台湾 | `🇨🇳 台湾 NN` |
+| Emoji | 组名 | 节点名格式 |
+|-------|------|-----------|
+| 🇭🇰 | hongkong | `🇭🇰 香港 NN` |
+| 🇲🇴 | macau | `🇲🇴 澳门 NN` |
+| 🇨🇳 | taiwan | `🇨🇳 台湾 NN` |
+| 🇯🇵 | japan | `🇯🇵 日本 NN` |
+| 🇰🇷 | korea | `🇰🇷 韩国 NN` |
+| 🇸🇬 | singapore | `🇸🇬 新加坡 NN` |
+| 🇺🇸 | us | `🇺🇸 美国 NN` |
+| 其他 | others | 自动归集 |
 
 ## 添加新订阅格式的步骤
 

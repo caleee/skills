@@ -24,7 +24,7 @@ def build_groups(nodes: list) -> list:
         'outbounds': base['proxies'],
     })
 
-    # 2. 区域 urltest 组
+    # 2. 区域 urltest 组（others 也用 urltest）
     for r in base['region_names']:
         outbounds.append({
             'type': 'urltest',

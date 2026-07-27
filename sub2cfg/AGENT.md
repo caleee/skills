@@ -32,6 +32,7 @@ cd sub2cfg && python3 -m pytest tests/ -v
 订阅源 (raw text)
   → detect.py 检测格式
   → extract/{format}.py 提取为统一 Clash 格式节点列表
+  → region.ensure_emoji_flag() 为无 emoji 节点推断并添加国旗
   → convert/to_singbox.py 按协议转换 (anytls/ss/trojan/hysteria2)
   → [可选] group/{target}.py 生成策略组
   → 输出 (sing-box: JSON, clash: YAML)
@@ -61,7 +62,7 @@ cd sub2cfg && python3 -m pytest tests/ -v
 
 | 文件 | 解析格式 |
 |------|----------|
-| `clash.py` | YAML → `proxies:` 段 → emoji 过滤 |
+| `clash.py` | YAML → `proxies:` 段 → 关键词排除信息条目 |
 | `surge.py` | `[Proxy]` 段落 → `name = protocol, server, port, kv...` |
 | `shadowrocket.py` | `ss://` base64、`trojan://` 标准 URI |
 | `base64.py` | base64 解码 → 递归分派到检测器 |

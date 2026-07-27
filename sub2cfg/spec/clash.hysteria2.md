@@ -20,7 +20,7 @@ proxies:
     port: 443
     password: "your-password"
     sni: "example.com"
-    skip-cert-verify: false
+    skip-cert-verify: true
     alpn:
       - h3
     obfs: salamander

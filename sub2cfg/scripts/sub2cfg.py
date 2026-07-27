@@ -7,6 +7,32 @@ import sys
 import argparse
 import importlib
 
+# Clash 节点字段输出顺序（按协议分组）
+# 协议特有字段（如 anytls 的 idle-session-*、name-cert-verify）在 order 中列出，
+# 其他未列出的字段（如 tfo）由 _reorder_node 自动追加到末尾。
+_FIELD_ORDER = {
+    'ss': ['name', 'type', 'server', 'port', 'cipher', 'password',
+           'plugin', 'plugin-opts', 'udp'],
+    'trojan': ['name', 'type', 'server', 'port', 'password',
+               'sni', 'skip-cert-verify', 'alpn', 'client-fingerprint', 'udp'],
+    'anytls': ['name', 'type', 'server', 'port', 'password',
+               'sni', 'skip-cert-verify', 'alpn', 'client-fingerprint',
+               'name-cert-verify', 'udp',
+               'idle-session-check-interval', 'idle-session-timeout', 'min-idle-session'],
+    'hysteria2': ['name', 'type', 'server', 'port', 'password',
+                  'sni', 'skip-cert-verify', 'alpn', 'client-fingerprint',
+                  'obfs', 'obfs-password', 'up', 'down', 'udp'],
+}
+
+
+def _reorder_node(node: dict) -> dict:
+    """按规范顺序重排节点字段。"""
+    order = _FIELD_ORDER.get(node.get('type'), [])
+    # order 中未列出的字段追加到末尾（保持原有相对顺序）
+    seen = set(order)
+    rest = [k for k in node if k not in seen]
+    return {k: node[k] for k in order + rest if k in node}
+
 
 def load_content(path):
     """读取原始文件内容（不解析 YAML）。"""
@@ -65,7 +91,19 @@ def main():
         print('错误: 未提取到任何有效节点', file=sys.stderr)
         sys.exit(1)
 
-    # 4. 转换格式
+    # 4. 为无 emoji 国旗的节点名推断并添加国旗
+    from region import ensure_emoji_flag
+    inferred = 0
+    for node in nodes:
+        old = node.get('name', '')
+        new = ensure_emoji_flag(old)
+        if old != new:
+            node['name'] = new
+            inferred += 1
+    if inferred:
+        print(f'[sub2cfg] 为 {inferred} 个节点添加了 emoji 国旗', file=sys.stderr)
+
+    # 5. 转换格式
     if args.target == 'sing-box':
         from convert.to_singbox import convert
         outbounds = []
@@ -92,15 +130,15 @@ def main():
 
         result = {'outbounds': outbounds}
     else:
-        # Clash 目标：直接输出节点
-        result = {'proxies': nodes}
+        # Clash 目标：输出节点（按规范顺序重排字段，PyYAML 自动处理引号）
+        result = {'proxies': [_reorder_node(n) for n in nodes]}
 
         if args.gen_groups:
             from group.clash import build_groups
             groups = build_groups(nodes)
             result['proxy-groups'] = groups
 
-    # 5. 输出（sing-box 用 JSON，clash 用 YAML）
+    # 6. 输出（sing-box 用 JSON，clash 用 YAML）
     if args.target == 'sing-box':
         import json
         output = json.dumps(result, ensure_ascii=False, indent=2)

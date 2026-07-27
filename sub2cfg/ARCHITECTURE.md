@@ -38,6 +38,13 @@ sub2cfg 是一个订阅链接转代理配置工具，核心功能是从不同格
                                    │ list[Clash-proxy-dict]
                                    ▼
                         ┌───────────────────────┐
+                        │   region.             │ ← emoji 推断层
+                        │   ensure_emoji_flag() │ ← 为无 emoji 国旗的节点名
+                        │                      │   自动推断并添加前缀
+                        └──────────┬────────────┘
+                                   │ list[Clash-proxy-dict]
+                                   ▼
+                        ┌───────────────────────┐
                         │   convert/            │ ← 转换层
                         │   按协议分派转换器      │
                         │   anytls → convert_anytls │
@@ -111,7 +118,7 @@ sub2cfg 是一个订阅链接转代理配置工具，核心功能是从不同格
 
 | 文件 | 输入格式 | 解析策略 |
 |------|----------|----------|
-| `clash.py` | YAML 文本 | `yaml.safe_load` → 取 `proxies:` 段 → 按 emoji 国旗过滤 |
+| `clash.py` | YAML 文本 | `yaml.safe_load` → 取 `proxies:` 段 → 按关键词排除信息条目 |
 | `surge.py` | 行文本 | 按 `name = protocol, server, port, kv...` 格式解析 |
 | `shadowrocket.py` | URI 文本 | 解析 `ss://` base64 编码或 `trojan://` 标准 URI |
 | `base64.py` | base64 文本 | 解码后递归调用 `detect()` 分派到对应提取器 |
@@ -136,8 +143,8 @@ convert_hysteria2(clash_node) -> singbox_outbound | None # hysteria2
 
 | 文件 | 目标平台 | 组结构 |
 |------|----------|--------|
-| `clash.py` | Clash | PROXIES + 13 个服务组 + 区域 url-test 组 + FINAL |
-| `singbox.py` | Sing-box | DIRECT + PROXIES + 区域 urltest 组 + FINAL |
+| `clash.py` | Clash | PROXIES + 13 个服务组 + 7 区域 url-test 组 + others + FINAL |
+| `singbox.py` | Sing-box | DIRECT + PROXIES + 7 区域 urltest 组 + others + FINAL |
 
 ### 编排层: `sub2cfg.py`
 
@@ -179,6 +186,11 @@ load_content() → detect() → EXTRACTOR_MODULES[fmt].extract() → convert() �
 ### 5. 区域识别依赖 emoji 国旗
 
 节点名中包含 emoji 国旗字符即视为该区域节点。这是一个启发式策略，覆盖了大多数机场的命名规范。
+
+节点名中无 emoji 国旗时，`region.py` 的 `ensure_emoji_flag()` 会根据 `NAME_FLAG_MAP`（关键词→国旗映射表）自动推断并添加前缀。新增区域时需同步更新：
+- `REGION_FLAGS`：所有已知 emoji 国旗列表
+- `REGION_MAP`：国旗→区域代码映射（用于策略组生成）
+- `NAME_FLAG_MAP`：关键词→国旗映射（用于 emoji 推断）
 
 ---
 

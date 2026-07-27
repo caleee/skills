@@ -45,7 +45,7 @@ def detect(content: str) -> str:
     if decoded:
         inner_lines = [l.strip() for l in decoded.splitlines() if l.strip() and not l.strip().startswith('#')]
         if inner_lines and (inner_lines[0].startswith('ss://') or inner_lines[0].startswith('trojan://')):
-            return 'shadowrocket'
+            return 'base64-uri'
 
     # Clash YAML
     if 'proxies:' in content and ('type: anytls' in content or 'type: ss' in content or '- name:' in content):

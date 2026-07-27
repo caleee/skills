@@ -217,6 +217,9 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
+# Sensitive file
+sub2cfg/sample/real-*
+
 # Others
 .claude/
 .codegraph/

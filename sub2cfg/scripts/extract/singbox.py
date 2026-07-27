@@ -13,7 +13,8 @@ def _extract_tls(outbound: dict, node: dict) -> None:
     tls = outbound.get('tls', {})
     if tls.get('server_name'):
         node['sni'] = tls['server_name']
-    node['skip-cert-verify'] = bool(tls.get('insecure'))
+    if tls.get('insecure'):
+        node['skip-cert-verify'] = True
     if tls.get('alpn'):
         node['alpn'] = tls['alpn']
     utls = tls.get('utls', {})

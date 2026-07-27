@@ -27,18 +27,6 @@ def _parse_userinfo_hostport(userinfo: str, hostport: str) -> SsNode | None:
     return SsNode(method, password, server, port)
 
 
-def _decode_ss_payload(payload: str) -> SsNode | None:
-    """从 ss:// base64 编码的 payload 中解码出 SsNode。"""
-    try:
-        decoded = base64.urlsafe_b64decode(payload + '==').decode('utf-8')
-    except Exception:
-        return None
-    if '@' not in decoded:
-        return None
-    userinfo, _, hostport = decoded.partition('@')
-    return _parse_userinfo_hostport(userinfo, hostport)
-
-
 def _parse_fragment(uri: str) -> str:
     """提取 URI 中的 #fragment 名称。"""
     if '#' in uri:
@@ -53,11 +41,11 @@ def _strip_ss_uri(uri: str) -> tuple[str, str]:
     return name, payload[5:]  # 去掉 'ss://' 前缀
 
 
-def _make_ss_node(name: str, ss: SsNode) -> dict:
+def _make_ss_node(name: str, ss: SsNode, query: dict | None = None) -> dict:
     """构造 Clash 格式 SS 节点；无 name 时回退 server:port。"""
     if not name:
         name = f'{ss.server}:{ss.port}'
-    return {
+    node = {
         'name': name,
         'type': 'ss',
         'server': ss.server,
@@ -65,15 +53,48 @@ def _make_ss_node(name: str, ss: SsNode) -> dict:
         'cipher': ss.method,
         'password': ss.password,
     }
+    if query and 'udp' in query:
+        node['udp'] = query['udp'][0] in ('1', 'true')
+    return node
 
 
 def _parse_ss_uri_sip002(uri: str) -> dict | None:
-    """解析 SIP002 格式: ss://base64(method:password@server:port)#name"""
+    """解析 SIP002 格式，支持两种变体：
+
+    Variant A (partial encoding): ss://BASE64(method:password)@server:port#name
+    Variant B (full encoding):   ss://BASE64(method:password@server:port)#name
+    """
     name, payload = _strip_ss_uri(uri)
-    result = _decode_ss_payload(payload)
-    if not result:
+
+    # 分离 query string（?key=value 部分）
+    query = None
+    if '?' in payload:
+        payload, _, qs = payload.partition('?')
+        from urllib.parse import parse_qs
+        query = parse_qs(qs)
+
+    # Variant A: BASE64(method:password)@server:port
+    if '@' in payload:
+        b64_part, _, hostport = payload.partition('@')
+        try:
+            decoded = base64.urlsafe_b64decode(b64_part + '==').decode('utf-8')
+        except Exception:
+            pass
+        else:
+            if ':' in decoded:
+                result = _parse_userinfo_hostport(decoded, hostport)
+                if result:
+                    return _make_ss_node(name, result, query)
+
+    # Variant B: BASE64(method:password@server:port) — 整个 payload 是 base64
+    try:
+        decoded = base64.urlsafe_b64decode(payload + '==').decode('utf-8')
+    except Exception:
         return None
-    return _make_ss_node(name, result)
+    if '@' not in decoded:
+        return None
+    userinfo, _, hostport = decoded.partition('@')
+    return _make_ss_node(name, _parse_userinfo_hostport(userinfo, hostport), query)
 
 
 def _parse_ss_uri_legacy(uri: str) -> dict | None:
@@ -121,10 +142,12 @@ def _parse_trojan_uri(uri: str) -> dict | None:
     }
     if 'peer' in query:
         node['sni'] = query['peer'][0]
-    if 'allowInsecure' in query:
-        node['skip-cert-verify'] = query['allowInsecure'][0] in ('1', 'true')
+    if 'allowInsecure' in query and query['allowInsecure'][0] in ('1', 'true'):
+        node['skip-cert-verify'] = True
     if 'fp' in query:
         node['client-fingerprint'] = query['fp'][0]
+    if 'udp' in query:
+        node['udp'] = query['udp'][0] in ('1', 'true')
     return node
 
 

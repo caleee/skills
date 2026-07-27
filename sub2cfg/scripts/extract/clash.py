@@ -1,13 +1,12 @@
 """
 从 Clash YAML proxies 段提取并过滤节点
+
+过滤策略：按关键词排除信息条目（如"当前流量"、"到期时间"），
+其余节点均视为有效代理节点。emoji 国旗推断在后续步骤中自动添加。
 """
 
-from region import ALL_FLAGS
-
-# 用于过滤非代理节点的 emoji 国旗集合（来源 region.ALL_FLAGS）。
-# ALL_FLAGS（30+ 国旗，用于节点过滤）是 REGION_MAP（5 区域，用于分组）的超集，
-# 二者用途不同，本就不同步：新增过滤国旗改 ALL_FLAGS，新增分组区域改 REGION_MAP。
-FLAG_EMOJIS = ALL_FLAGS
+# 用于过滤非代理节点的关键词（名称含这些关键词的条目会被跳过）
+INFO_KEYWORDS = ['当前流量', '到期时间', '剩余流量', '已用流量', '套餐', '订阅']
 
 
 def is_proxy_node(node) -> bool:
@@ -15,12 +14,10 @@ def is_proxy_node(node) -> bool:
     name = node.get('name', '')
     if not name:
         return False
-    if '当前流量' in name or '到期时间' in name or '剩余流量' in name:
-        return False
-    for ch in name:
-        if ch in FLAG_EMOJIS:
-            return True
-    return False
+    for kw in INFO_KEYWORDS:
+        if kw in name:
+            return False
+    return True
 
 
 def filter_proxies(proxies: list) -> list:

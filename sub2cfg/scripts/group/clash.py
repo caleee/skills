@@ -34,7 +34,7 @@ def build_groups(nodes: list) -> list:
             'proxies': ['DIRECT', 'PROXIES'] + base['region_names'] + ['FINAL'],
         })
 
-    # 3. 区域 url-test 组
+    # 3. 区域 url-test 组（others 也用 url-test）
     for r in base['region_names']:
         groups.append({
             'name': r,
