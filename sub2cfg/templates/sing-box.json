@@ -3899,6 +3899,30 @@
         "tag": "geosite-dns",
         "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-dns.srs",
         "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geoip-mo",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-mo.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geoip-tw",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-tw.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geoip-kr",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-kr.srs",
+        "download_detour": "Direct"
+      },
+      {
+        "type": "remote",
+        "tag": "geoip-sg",
+        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-sg.srs",
+        "download_detour": "Direct"
       }
     ],
     "final": "final",

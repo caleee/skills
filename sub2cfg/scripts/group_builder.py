@@ -4,6 +4,9 @@ import sys
 
 from region import get_region
 
+# 需要动态生成的区域组名（self/others 由生成器产出，不从模板保留）
+DYNAMIC_GROUPS = {'self', 'others'}
+
 
 def group_by_region(nodes: list, self_nodes: list | None = None) -> tuple[dict[str, list[str]], list[str], list[str]]:
     """按区域分组，返回 (regions, region_names, all_node_names)。
@@ -29,7 +32,16 @@ def group_by_region(nodes: list, self_nodes: list | None = None) -> tuple[dict[s
         else:
             regions.setdefault('others', []).append(name)
 
-    region_names = sorted(r for r in regions if r != 'others' and r != 'self')
+    # 按模板定义的顺序排列区域组（匹配 GROUP-ARCHITECTURE.md）
+    _TEMPLATE_ORDER = ['hongkong', 'macao', 'taiwan', 'japan', 'korea', 'singapore', 'america']
+    region_names = []
+    for r in _TEMPLATE_ORDER:
+        if r in regions:
+            region_names.append(r)
+    # 模板外的新区域按字母序追加
+    for r in sorted(regions):
+        if r not in _TEMPLATE_ORDER and r != 'self' and r != 'others':
+            region_names.append(r)
     if 'self' in regions:
         region_names.append('self')
     if 'others' in regions:

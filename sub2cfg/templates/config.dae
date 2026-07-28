@@ -59,7 +59,7 @@ dns {
     }
 }
 
-# ====== DYNAMIC: subscription ======
+# ====== STATIC: subscription ======
 subscription {
     self: 'file://subscriptions/airport_sub'
     macao: 'file://subscriptions/airport_sub'
@@ -71,7 +71,7 @@ subscription {
     america: 'file://subscriptions/airport_sub'
 }
 
-# ====== DYNAMIC: node ======
+# ====== STATIC: node ======
 node {
 }
 

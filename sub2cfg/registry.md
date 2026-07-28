@@ -10,65 +10,39 @@ name: sub2cfg 模块清单
 
 | 订阅格式 | 识别方法 | 提取方式 | 当前状态 |
 |----------|----------|----------|----------|
-| Clash YAML | 包含 `proxies:` 段 | 直接提取 `proxies:` 下的节点列表 | 已支持 |
+| Clash YAML | 包含 `proxies:` 段 | 直接提取 `proxies:` 下的节点列表，按 INFO_KEYWORDS 过滤 | 已支持 |
 | Surge | 包含 `[Proxy]` 段且有 `udp-relay` | 解析 `name = protocol, server, port, ...` 格式 | 已支持 |
 | Loon | 包含 `[Proxy]` 段且无 `udp-relay` | 解析 `name = protocol, server, port, ...` 格式 | 已支持 |
-| Shadowrocket | 行以 `ss://` 或 `trojan://` 开头 | 解析 URI 格式 | 已支持 |
-| Base64 编码 | 自动检测：base64 解码后内容为 URI 格式时返 `base64-uri`；也可 `-f base64-uri` 强制指定 | base64 解码后递归检测 | 已支持 |
+| Shadowrocket | 行以 `ss://` 或 `trojan://` 开头 | 解析 URI 格式，支持 SIP002 两种变体 | 已支持 |
+| Base64 编码 | 自动检测：base64 解码后内容为 URI 格式时返 `base64-uri` | base64 解码后递归检测 | 已支持 |
 | Sing-box JSON | 包含 `"outbounds"` 段 | 解析 JSON outbounds 数组 | 已支持 |
 
-## 格式定义（spec）
+## 目标平台
 
-### 节点格式
+| 平台 | 组类型 | 模板格式 | 生成器 |
+|------|--------|----------|--------|
+| Clash (Mihomo) | url-test + select + fallback | YAML | `generate/clash.py` |
+| Sing-box | urltest + selector | JSON | `generate/singbox.py` |
+| DAE | min_moving_avg | HCL | `generate/dae.py` |
 
-| 文件 | 平台 | 协议 | 参考文档 |
-|------|------|------|----------|
-| spec/clash.proxy-format.md | Clash (Mihomo) | 统一中间格式 | 字段规范，所有提取器/转换器共享 |
-| spec/clash.anytls.md | Clash (Mihomo) | anytls | https://wiki.metacubex.one/config/proxies/anytls/ |
-| spec/clash.ss.md | Clash (Mihomo) | ss | https://wiki.metacubex.one/config/proxies/ss/ |
-| spec/clash.trojan.md | Clash (Mihomo) | trojan | https://wiki.metacubex.one/config/proxies/trojan/ |
-| spec/clash.hysteria2.md | Clash (Mihomo) | hysteria2 | https://wiki.metacubex.one/config/proxies/hysteria2/ |
-| spec/sing-box.anytls.md | Sing-box | anytls | https://sing-box.sagernet.org/configuration/outbound/anytls/ |
-| spec/sing-box.ss.md | Sing-box | ss | https://sing-box.sagernet.org/configuration/outbound/shadowsocks/ |
-| spec/sing-box.trojan.md | Sing-box | trojan | https://sing-box.sagernet.org/configuration/outbound/trojan/ |
-| spec/sing-box.hysteria2.md | Sing-box | hysteria2 | https://sing-box.sagernet.org/configuration/outbound/hysteria2/ |
+## 核心模块
 
-### 订阅格式
-
-| 文件 | 平台 | 说明 |
+| 模块 | 文件 | 说明 |
 |------|------|------|
-| spec/surge.proxy.md | Surge | Surge [Proxy] 段落格式定义 |
-| spec/loon.proxy.md | Loon | Loon [Proxy] 段落格式定义 |
-| spec/shadowrocket.uri.md | Shadowrocket | Shadowrocket URI 格式定义 |
-
-### 组格式
-
-| 文件 | 平台 | 类型 | 参考文档 |
-|------|------|------|----------|
-| spec/clash.proxy-groups.md | Clash (Mihomo) | proxy-groups | https://wiki.metacubex.one/config/proxy-groups/ |
-| spec/sing-box.outbound-groups.md | Sing-box | outbound-groups | https://sing-box.sagernet.org/configuration/outbound/selector/ |
-
-## 转换规则（convert）
-
-### 节点转换
-
-| 文件 | 源平台 | 目标平台 | 协议 |
-|------|--------|----------|------|
-| convert/clash-to-sing-box.anytls.md | Clash | Sing-box | anytls |
-| convert/clash-to-sing-box.ss.md | Clash | Sing-box | ss |
-| convert/clash-to-sing-box.trojan.md | Clash | Sing-box | trojan |
-| convert/clash-to-sing-box.hysteria2.md | Clash | Sing-box | hysteria2 |
-
-### 组生成
-
-| 文件 | 源平台 | 目标平台 | 说明 |
-|------|--------|----------|------|
-| convert/clash-to-clash.group-gen.md | Clash | Clash | 从节点列表生成 proxy-groups |
-| convert/clash-to-sing-box.group-gen.md | Clash | Sing-box | 从节点列表生成 outbound-groups |
+| 主入口 | `sub2cfg.py` | 编排流水线，参数解析 |
+| 格式检测 | `detect.py` | 判断订阅格式类型 |
+| 提取器 | `extract/{fmt}.py` | 5 个格式的节点提取 |
+| 模板组装 | `generate/{target}.py` | 3 个平台的模板组装 |
+| 区域组生成 | `group/{target}.py` | 3 个平台的区域组生成 |
+| 分组骨架 | `group_builder.py` | 按区域分组 + self 注入 |
+| 区域识别 | `region.py` | emoji 国旗 + 关键词推断 |
+| 节点格式 | `proxy_format.py` | 字段顺序规范 |
+| 协议注册 | `protocol.py` | 协议类型映射 |
+| Sing-box 转换 | `convert/to_singbox.py` | Clash dict → Sing-box outbound |
 
 ## 区域映射表
 
-所有组生成规则共享此区域映射。7 个常用组各生成一个 url-test 策略组，非这 7 个区域的节点自动归入 `others` 组。
+7 个常用组各生成一个 url-test 策略组，非这 7 个区域的节点自动归入 `others` 组（DAE 无 `others`）。
 
 | Emoji | 组名 | 节点名格式 |
 |-------|------|-----------|
@@ -81,22 +55,13 @@ name: sub2cfg 模块清单
 | 🇺🇸 | america | `🇺🇸 美国 NN` |
 | 其他 | others | 自动归集 |
 
-## 添加新订阅格式的步骤
+## 转换规则（convert）
 
-1. 识别订阅返回的格式特征（YAML 结构、URI 前缀、关键字等）
-2. 提取节点列表，转成统一的 Clash 格式节点结构
-3. 如果已有对应平台 spec，直接复用；否则新增 spec
-4. 如需转其他格式，在 `convert/` 下添加转换规则
-
-## 添加新协议的步骤
-
-1. 在 `spec/` 下更新或创建平台协议定义
-2. 在 `convert/` 下创建对应的转换规则
-3. 更新本 `registry.md`
-
-## 命名规范
-
-- spec 节点文件: `{平台}.{协议}.md`
-- spec 组文件: `{平台}.{type}.md`
-- convert 节点文件: `{源平台}-to-{目标平台}.{协议}.md`
-- convert 组文件: `{源平台}-to-{目标平台}.group-gen.md`
+| 文件 | 源平台 | 目标平台 | 说明 |
+|------|--------|----------|------|
+| `clash-to-sing-box.anytls.md` | Clash | Sing-box | anytls 协议转换规则 |
+| `clash-to-sing-box.ss.md` | Clash | Sing-box | ss 协议转换规则 |
+| `clash-to-sing-box.trojan.md` | Clash | Sing-box | trojan 协议转换规则 |
+| `clash-to-sing-box.hysteria2.md` | Clash | Sing-box | hysteria2 协议转换规则 |
+| `clash-to-clash.group-gen.md` | Clash | Clash | 区域组生成规则 |
+| `clash-to-sing-box.group-gen.md` | Clash | Sing-box | 区域组生成规则 |

@@ -1,10 +1,10 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code when working with this repository.
 
 ## 仓库结构
 
-本仓库是 Claude Code skill 集合。每个 skill 由一个根目录的 `.md` 文件（技能定义，用于 Claude 交互）和一个同名目录（实现文件 + `AGENT.md` 详细说明）组成。
+本仓库是 Claude Code skill 集合。每个 skill 由一个根目录的 `.md` 文件（技能定义）和一个同名目录（实现文件 + `AGENT.md`）组成。
 
 ## Skill 列表
 
@@ -12,8 +12,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 |-------|----------|----------|------|
 | sub2cfg | `sub2cfg.md` | `sub2cfg/AGENT.md` | 订阅链接转代理配置 |
 
-## 通用约定
+## 文档层次
 
-- 根目录下不放置实现代码，只放 skill 定义文件（`.md`）和项目级配置
-- 每个 skill 目录下需包含 `AGENT.md`，描述该 skill 的架构、命令、扩展指南
-- 新增 skill 时，在本表添加一行，并在对应目录下创建 `AGENT.md`
+- **根目录 `.md` 文件**：skill 定义，供用户/Agent 发现 skill 存在
+- **`{skill}/AGENT.md`**：skill 运行说明，含命令、架构、扩展指南
+- **`{skill}/` 内其他文档**：仅放功能上依赖的文档（被代码引用、运行时需要）
+- **`docs/{skill}/`**：开发者看的参考文档（架构设计、设计决策），skill 运行时不依赖
+- **`CLAUDE.md`**：纯索引，不含任何 skill 的具体信息，避免污染上下文

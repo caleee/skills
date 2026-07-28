@@ -9,33 +9,14 @@ import importlib
 import os
 import urllib.request
 import urllib.error
+import urllib.parse
+from proxy_format import reorder_node
 
 # 脚本所在目录（用于解析模板路径等）
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_DIR = os.path.join(SCRIPT_DIR, '..', 'templates')
 
-# Clash 节点字段输出顺序（按协议分组）
-_FIELD_ORDER = {
-    'ss': ['name', 'type', 'server', 'port', 'cipher', 'password',
-           'plugin', 'plugin-opts', 'udp'],
-    'trojan': ['name', 'type', 'server', 'port', 'password',
-               'sni', 'skip-cert-verify', 'alpn', 'client-fingerprint', 'udp'],
-    'anytls': ['name', 'type', 'server', 'port', 'password',
-               'sni', 'skip-cert-verify', 'alpn', 'client-fingerprint',
-               'name-cert-verify', 'udp',
-               'idle-session-check-interval', 'idle-session-timeout', 'min-idle-session'],
-    'hysteria2': ['name', 'type', 'server', 'port', 'password',
-                  'sni', 'skip-cert-verify', 'alpn', 'client-fingerprint',
-                  'obfs', 'obfs-password', 'up', 'down', 'udp'],
-}
 
-
-def _reorder_node(node: dict) -> dict:
-    """按规范顺序重排节点字段。"""
-    order = _FIELD_ORDER.get(node.get('type'), [])
-    seen = set(order)
-    rest = [k for k in node if k not in seen]
-    return {k: node[k] for k in order + rest if k in node}
 
 
 def load_content(path):
@@ -89,7 +70,7 @@ def resolve_template_path(path):
     """
     if os.path.isabs(path):
         print(f'错误: 模板路径不支持绝对路径 {path}，请使用文件名', file=sys.stderr)
-        print(f'可用模板: clash.yaml, config.dae, sing-box.json', file=sys.stderr)
+        print('可用模板: clash.yaml, config.dae, sing-box.json', file=sys.stderr)
         sys.exit(1)
 
     normalized = os.path.normpath(path)
@@ -106,7 +87,7 @@ def resolve_template_path(path):
         return os.path.realpath(cwd_candidate)
 
     print(f'错误: 找不到模板文件 {path}，请在 templates/ 目录下查找', file=sys.stderr)
-    print(f'可用模板: clash.yaml, config.dae, sing-box.json', file=sys.stderr)
+    print('可用模板: clash.yaml, config.dae, sing-box.json', file=sys.stderr)
     sys.exit(1)
 
 
@@ -191,44 +172,21 @@ def main():
         print(f'[sub2cfg] 为 {inferred} 个节点添加了 emoji 国旗', file=sys.stderr)
 
     # 5. 模板组装（如有模板）
+    output = ''
     if args.template:
         template_path = resolve_template_path(args.template)
+        from group_builder import group_by_region
+        regions, region_names, _ = group_by_region(nodes, self_nodes)
+
         if args.target == 'clash':
-            from group.clash import build_groups
-            groups = build_groups(nodes, self_nodes=self_nodes)
-            from group_builder import group_by_region
-            region_data, region_names, _ = group_by_region(nodes, self_nodes)
-            regions = {}
-            for g in groups:
-                regions[g['name']] = g['proxies'] if 'proxies' in g else g['outbounds']
-
             from generate.clash import generate
-            output = generate(
-                template_path, nodes,
-                region_names, regions,
-            )
+            output = generate(template_path, nodes, region_names, regions)
         elif args.target == 'sing-box':
-            from group.singbox import build_groups
-            groups = build_groups(nodes, self_nodes=self_nodes)
-            from group_builder import group_by_region
-            region_data, region_names, _ = group_by_region(nodes, self_nodes)
-            regions = {}
-            for g in groups:
-                regions[g['tag']] = g['outbounds']
-
             from generate.singbox import generate
-            output = generate(
-                template_path, nodes,
-                region_names, regions,
-            )
+            output = generate(template_path, nodes, region_names, regions)
         elif args.target == 'dae':
-            from group_builder import group_by_region
-            region_data, region_names, _ = group_by_region(nodes, self_nodes)
             from generate.dae import generate
-            output = generate(
-                template_path, nodes,
-                region_names, region_data,
-            )
+            output = generate(template_path, region_names)
     else:
         # 无模板：只输出节点和组
         if args.target == 'sing-box':
@@ -256,7 +214,7 @@ def main():
             import json
             output = json.dumps(result, ensure_ascii=False, indent=2)
         else:
-            result = {'proxies': [_reorder_node(n) for n in nodes]}
+            result = {'proxies': [reorder_node(n) for n in nodes]}
             if args.gen_groups:
                 from group.clash import build_groups
                 groups = build_groups(nodes, self_nodes=self_nodes)

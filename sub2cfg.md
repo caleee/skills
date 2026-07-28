@@ -1,122 +1,81 @@
 ---
 name: sub2cfg
-description: 订阅链接转代理配置 — 拉取订阅、提取节点、格式转换、策略组生成
+description: 订阅链接转代理配置 — 从订阅 URL 或节点信息生成 Clash/Sing-box/DAE 三平台完整配置
 ---
 
 # sub2cfg — 订阅链接转代理配置
 
 ## 概述
 
-从订阅 URL 拉取 → 识别格式 → 提取节点 → 转换目标格式 → 生成策略组。
+从订阅 URL 或节点文件 → 提取节点 → 按区域分组 → 组装模板 → 输出完整可用的代理配置文件。
 
-支持订阅格式：Clash YAML、Surge、Loon、Shadowrocket URI、Base64 编码、Sing-box JSON
+## 触发条件
 
-支持协议：Shadowsocks (ss)、Trojan、AnyTLS、Hysteria2
+用户提供以下任何一种输入时触发本 skill：
+- 代理订阅链接（URL）
+- 订阅文件（Clash YAML / Surge / Loon / Shadowrocket URI / Base64 / Sing-box JSON）
+- 真实节点配置信息
 
-支持目标平台：Clash / Mihomo、Sing-box
+## 流程
 
-## 交互流程
+### 1. 确认输入
 
-触发本 skill 后，我会依次问你几个问题：
+- 用户给了 URL → 用 `-u` 参数，sub2cfg 自动下载
+- 用户给了本地文件 → 直接传入路径
+- 用户给了自建节点（vless/hysteria2 等）→ 先用 `-s` 参数传入自建节点文件
 
-### 0. 确认环境
+### 2. 确认目标平台
 
-> 你的设备上安装了 Python 3 吗？
+- 默认 Clash
+- 用户要 Sing-box 或 DAE → 加 `-t sing-box` 或 `-t dae`
 
-如果没装，需要先安装 Python 3.10+。安装后把 `scripts/` 目录放到设备上。
-验证方法：`python3 --version`
+### 3. 确认模板
 
-### 1. 提供订阅链接
+- 默认 `clash.yaml`，自动在 `templates/` 目录查找
+- 模板标记：`STATIC` 照抄 / `DYNAMIC` 替换 / `MIXED` 区域组替换 + 服务组保留
+- 用户可提供自定义模板路径
 
-> 把订阅 URL 发给我。
-
-### 2. 确认订阅可获取
-
-> 机场后台开启了订阅获取吗？有些有机防盗链，需要先去后台打开才能拉取（有效期一般 10 分钟）。
-
-如果还没开启，先去后台操作，然后回来告诉我"已开启"。
-
-### 3. 确认目标平台
-
-> 要转换成什么平台的配置？(clash / sing-box)
-
-如果不说，默认 Clash 格式（节点可直接用）。
-
-### 4. 确认是否生成策略组
-
-> 需要生成策略组吗？(proxy-groups / 不需要)
-
-- Clash 生成 PROXIES + 服务组 + 区域 url-test + FINAL
-- Sing-box 生成 PROXIES + 区域 urltest + FINAL + DIRECT
-
-### 5. 执行
-
-确认后执行：
-1. `curl -sL "<订阅URL>"` 拉取订阅
-2. `detect.py` 检测格式
-3. 调用 `sub2cfg.py` 提取节点 + 转换 + 生成组
-4. 输出结果
-5. **验证**：运行 `python3 verify.py` 检查所有模块和流水线是否正常
-
-### 6. 验证结果处理
-
-- 如果验证**全部通过**（0 失败）：确认输出无误，告知用户转换完成
-- 如果验证有**失败项**：先检查失败原因，能修复就立即修复并重新验证；无法修复的，把失败项告诉用户，由用户决定是否继续使用当前输出
-
-## 变量说明
-
-| 变量 | 来源 | 说明 |
-|------|------|------|
-| 订阅 URL | 用户提供 | curl 拉取的目标 |
-| 订阅格式 | Python 自动检测 | clash / surge / loon / shadowrocket / base64-uri / sing-box / unknown |
-| 目标平台 | 用户指定 | clash（默认）或 sing-box |
-| 是否生成组 | 用户指定 | 是则调用 group 模块 |
-| 节点协议 | 从节点数据读取 | ss, trojan, anytls 等 |
-
-## 脚本用法
+### 4. 执行
 
 ```bash
-# 先拉取订阅
-curl -sL "<订阅URL>" > subscribe.yaml
+cd sub2cfg/scripts
 
-# 检测格式
-python3 scripts/detect.py < subscribe.yaml
+# 从 URL 生成 Clash 完整配置
+python3 sub2cfg.py -u '<订阅URL>' -T clash.yaml -o /tmp/config.yaml
 
-# 提取 + 转换 (Clash → Clash, 带组)
-python3 scripts/sub2cfg.py subscribe.yaml -g
+# 从本地文件生成 Sing-box 配置
+python3 sub2cfg.py -t sing-box subscribe.txt -T sing-box.json -o /tmp/config.json
 
-# 提取 + 转换 (Clash → Sing-box, 带组)
-python3 scripts/sub2cfg.py subscribe.yaml -t sing-box -g
+# 带自建节点
+python3 sub2cfg.py subscribe.txt -s self-nodes.yaml -T clash.yaml -o /tmp/config.yaml
 
-# 强制指定输入格式（自动检测失败时使用）
-python3 scripts/sub2cfg.py surge.conf -f surge -t sing-box -g -o output.yaml
-
-# 写入文件
-python3 scripts/sub2cfg.py subscribe.yaml -t sing-box -g -o output.yaml
+# 只输出节点和组（不组装模板）
+python3 sub2cfg.py subscribe.txt -g
 ```
 
-## 验证
-
-转换完成后**必须**运行验证，确认结果可用。
+### 5. 验证
 
 ```bash
-# 运行所有测试
-python3 verify.py
-
-# 详细输出
-python3 verify.py --verbose
+cd sub2cfg && python3 verify.py
 ```
 
-验证失败时，检查输出中的 FAIL 项，按以下顺序排查：
-1. 模块导入失败 → 检查 Python 环境和依赖（`pip install pyyaml`）
-2. 格式检测失败 → 检查订阅文件是否已正确拉取
-3. 提取器/转换器失败 → 检查节点数据是否有异常字段
-4. 端到端失败 → 检查 sample 文件是否完整
+- 全部通过 → 告知用户转换完成
+- 有失败项 → 先修复再验证，无法修复的告知用户
 
-## 参考文档
+## 参数
 
-- Sing-box: https://sing-box.sagernet.org/configuration/outbound/
-- Clash (Mihomo): https://wiki.metacubex.one/config/proxies/
-- Shadowsocks (Clash): https://wiki.metacubex.one/config/proxies/ss/
-- Trojan (Clash): https://wiki.metacubex.one/config/proxies/trojan/
-- AnyTLS (Clash): https://wiki.metacubex.one/config/proxies/anytls/
+| 参数 | 说明 |
+|------|------|
+| `-u <URL>` | 从 URL 下载订阅（防 SSRF） |
+| `-t clash/sing-box/dae` | 目标平台（默认 clash） |
+| `-T <文件名>` | 模板文件，自动查找 `templates/` 目录 |
+| `-s <文件>` | 自建节点文件，生成 self 兜底组 |
+| `-g` | 生成策略组（无模板时） |
+| `-f <格式>` | 强制指定输入格式 |
+| `-o <文件>` | 输出到文件（默认 stdout） |
+
+## 注意事项
+
+- 模板中的代理段（`DYNAMIC: proxies`）由 sub2cfg 替换，占位符不影响输出
+- 自建节点文件格式：Clash 用 `proxies:` 段，Sing-box 用 `outbounds:` 段
+- 订阅链接 token 通常有时效，尽快使用
