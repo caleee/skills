@@ -11,6 +11,7 @@ This file provides guidance to Claude Code when working with this repository.
 | Skill | 技能定义 | 详细说明 | 描述 |
 |-------|----------|----------|------|
 | sub2cfg | `sub2cfg.md` | `sub2cfg/AGENT.md` | 订阅链接转代理配置 |
+| commit-message | `commit-message.md` | `commit-message/AGENT.md` | 按 Conventional Commits 规范生成提交信息 |
 
 ## 文档层次
 
