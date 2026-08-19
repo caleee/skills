@@ -6,7 +6,7 @@ user-invocable: true
 
 # commit-message — 提交规范
 
-按 Conventional Commits 规范生成提交信息。完整规范见 `commit-message/AI-Agent提交规范.md`。
+按 Conventional Commits 规范生成提交信息。完整规范见 `commit-message/commit.md`。
 
 ## 触发条件
 

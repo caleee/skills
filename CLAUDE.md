@@ -20,3 +20,33 @@ This file provides guidance to Claude Code when working with this repository.
 - **`{skill}/` 内其他文档**：仅放功能上依赖的文档（被代码引用、运行时需要）
 - **`docs/{skill}/`**：开发者看的参考文档（架构设计、设计决策），skill 运行时不依赖
 - **`CLAUDE.md`**：纯索引，不含任何 skill 的具体信息，避免污染上下文
+
+## 新增 Skill 通用注意事项
+
+开发新 skill 时，除遵循上方结构外，还需满足发布机制（`.github/workflows/release-skill.yml` + `docs/adr/0001-version-and-release-strategy.md`）的要求：
+
+### 结构要求
+
+- 根目录 `<name>.md`：frontmatter 必须含 `name` 和**单行** `description`（workflow 用正则按行提取 description 作为 Release 说明，多行会截断）
+- skill 名只能用 `[a-zA-Z0-9_-]`（workflow 输入校验限制，命令注入防线）
+- 目录内所有文件必须 `git add` 跟踪（打包用 `git archive`，只含 tracked 文件，未跟踪文件不会进 zip）
+
+### VERSION 文件
+
+- 每个 skill 目录必须有 `VERSION` 文件：内容为纯 semver（如 `0.1.0`），无 `v` 前缀
+- 首次发布**手动创建**并写入初始版本（如 `0.1.0`），workflow 不负责首次创建，只负责 patch +1
+- `VERSION` 是版本号单一事实来源，保持与实际发布一致
+
+### 内容要求
+
+- 根 `.md` 的 description 即 Release 说明的唯一来源，写清楚 skill 用途与触发条件
+- 参考其他 skill 的既有约定：命名规范（`sub2cfg`）、触发条件段落、示例与模板
+- 从其他仓库引入的文档按需适配（去掉源仓库特化内容，如路径、专用命令），并注明来源
+
+### 完成检查清单
+
+1. `<name>.md` 存在，frontmatter 含 `name` + 单行 `description`
+2. `<name>/` 目录存在，含 `AGENT.md`
+3. `<name>/VERSION` 存在且为合法 semver
+4. 目录内文件已全部 `git add` 跟踪
+5. `CLAUDE.md` Skill 列表与 `README.md` 已同步更新

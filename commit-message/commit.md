@@ -1,11 +1,8 @@
----
-argument-hint: [--no-verify] [--style=simple|full] [--type=feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert|security]
-description: Create well-formatted commits with conventional commit messages
----
+# Commit Message Specification
 
-# Claude Command: Commit
+Complete spec for well-formatted commits following the Conventional Commits specification.
 
-This command helps you create well-formatted commits following the Conventional Commits specification.
+> 来源：brain 仓库 git 提交规范 wiki 文档，本仓库为适配副本（去掉了源仓库的斜杠命令 `/commit` 与参数特化内容）。
 
 ## Language Rules
 
@@ -13,34 +10,11 @@ This command helps you create well-formatted commits following the Conventional 
 - **Description / subject / body**: Write in Chinese
 - **No emoji**: Never use emoji prefixes in any commit message
 
-## Usage
+## What This Skill Does
 
-Basic usage:
-```
-/commit
-```
-
-With options:
-```
-/commit --no-verify
-/commit --style=full
-/commit --style=full --type=feat
-```
-
-## Command Options
-
-- `--no-verify`: Skip pre-commit checks (lint, build, generate:docs)
-- `--style=simple|full`: 
-  - `simple` (default): Creates concise single-line commit messages
-  - `full`: Creates detailed commit messages with body and footer sections
-- `--type=<type>`: Specify the commit type (overrides automatic detection)
-
-## What This Command Does
-
-1. **Pre-commit checks** (unless `--no-verify`):
+1. **Pre-commit checks**:
    - Detect the repo's package manager and actual scripts first (e.g. `pnpm lint`, `npm run lint`)
    - Only run checks that exist; if none are configured, skip this step
-   - `--no-verify` skips pre-commit checks entirely
 
 2. **File staging**:
    - Check staged files with `git status`
@@ -237,6 +211,6 @@ Refs: RFC-6749, RFC-7636
   - Complex features
   - Bug fixes requiring explanation
   - Changes affecting multiple systems
-- The tool will intelligently detect when full style might be beneficial and suggest it
+- The agent will intelligently detect when full style might be beneficial and suggest it
 - Always review the generated message before confirming
 - Pre-commit checks help maintain code quality
