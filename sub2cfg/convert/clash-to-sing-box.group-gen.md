@@ -23,7 +23,7 @@ Clash 格式的节点列表（YAML 数组），从订阅 YAML 的 `proxies:` 段
 
 ## 区域映射
 
-区域映射表见 `registry.md`。
+区域映射表见 `docs/sub2cfg/GROUP-ARCHITECTURE.md`。
 
 ## 关键词约定
 

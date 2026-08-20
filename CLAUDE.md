@@ -15,7 +15,8 @@ This file provides guidance to Claude Code when working with this repository.
 
 ## 文档层次
 
-- **根目录 `.md` 文件**：skill 定义，供用户/Agent 发现 skill 存在
+- **根目录 `.md` 文件**：skill 索引（frontmatter + 指引），供用户/Agent 发现；完整定义在 `<name>/SKILL.md`，避免重复维护
+- **`{skill}/SKILL.md`**：Anthropic 标准技能入口，完整 skill 定义（cc-switch 从 ZIP 安装、Claude Code 识别 skill 均依赖它）
 - **`{skill}/AGENT.md`**：skill 运行说明，含命令、架构、扩展指南
 - **`{skill}/` 内其他文档**：仅放功能上依赖的文档（被代码引用、运行时需要）
 - **`docs/{skill}/`**：开发者看的参考文档（架构设计、设计决策），skill 运行时不依赖
@@ -27,7 +28,8 @@ This file provides guidance to Claude Code when working with this repository.
 
 ### 结构要求
 
-- 根目录 `<name>.md`：frontmatter 必须含 `name` 和**单行** `description`（workflow 用正则按行提取 description 作为 Release 说明，多行会截断）
+- 根目录 `<name>.md`：frontmatter 必须含 `name` 和**单行** `description`（workflow 用正则按行提取 description 作为 Release 说明，多行会截断），正文只放一句指引，不重复 SKILL.md 内容
+- **`<name>/SKILL.md`**：完整 skill 定义（Anthropic 标准技能入口，cc-switch 从 ZIP 安装、Claude Code 识别 skill 均依赖它）
 - skill 名只能用 `[a-zA-Z0-9_-]`（workflow 输入校验限制，命令注入防线）
 - 目录内所有文件必须 `git add` 跟踪（打包用 `git archive`，只含 tracked 文件，未跟踪文件不会进 zip）
 
@@ -46,7 +48,7 @@ This file provides guidance to Claude Code when working with this repository.
 ### 完成检查清单
 
 1. `<name>.md` 存在，frontmatter 含 `name` + 单行 `description`
-2. `<name>/` 目录存在，含 `AGENT.md`
+2. `<name>/` 目录存在，含 `AGENT.md` 和 `SKILL.md`（完整定义）；根 `<name>.md` 只含 frontmatter + 指引
 3. `<name>/VERSION` 存在且为合法 semver
 4. 目录内文件已全部 `git add` 跟踪
 5. `CLAUDE.md` Skill 列表与 `README.md` 已同步更新

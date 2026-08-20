@@ -34,17 +34,17 @@
 
 按国家/地区 **emoji 国旗** 自动分组：
 
-| 区域 | 国旗 | 组名 | 类型 |
-|------|------|------|------|
-| 香港 | 🇭🇰 | hongkong | urltest |
-| 澳门 | 🇲🇴 | macao | urltest |
-| 台湾 | 🇨🇳 | taiwan | urltest |
-| 日本 | 🇯🇵 | japan | urltest |
-| 韩国 | 🇰🇷 | korea | urltest |
-| 新加坡 | 🇸🇬 | singapore | urltest |
-| 美国 | 🇺🇸 | america | urltest |
-| 自建 | — | self | select（Clash）/ selector（Sing-box） |
-| 其他 | 其余国旗 | others | select（DAE 无此组） |
+| 区域 | 国旗 | 组名 | 类型 | 节点名格式 |
+|------|------|------|------|-----------|
+| 香港 | 🇭🇰 | hongkong | urltest | `🇭🇰 香港 NN` |
+| 澳门 | 🇲🇴 | macao | urltest | `🇲🇴 澳门 NN` |
+| 台湾 | 🇨🇳 | taiwan | urltest | `🇨🇳 台湾 NN` |
+| 日本 | 🇯🇵 | japan | urltest | `🇯🇵 日本 NN` |
+| 韩国 | 🇰🇷 | korea | urltest | `🇰🇷 韩国 NN` |
+| 新加坡 | 🇸🇬 | singapore | urltest | `🇸🇬 新加坡 NN` |
+| 美国 | 🇺🇸 | america | urltest | `🇺🇸 美国 NN` |
+| 自建 | — | self | select（Clash）/ selector（Sing-box） | — |
+| 其他 | 其余国旗 | others | select（DAE 无此组） | 自动归集 |
 
 ---
 

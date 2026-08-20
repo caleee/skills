@@ -80,7 +80,8 @@ python3 -m pytest tests/ -v
 
 ## 重要文件路径
 
-- `sub2cfg.md` — skill 定义
+- `sub2cfg/SKILL.md` — skill 定义（完整内容）
+- `sub2cfg.md` — 根索引（frontmatter + 指引）
 - `scripts/sub2cfg.py` — 主入口
 - `scripts/detect.py` — 格式检测
 - `scripts/extract/` — 提取器（5 个格式）
