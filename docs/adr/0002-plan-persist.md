@@ -51,12 +51,18 @@
 ### 6. 模板重量与词汇
 
 - 轻量：仅 `SKILL.md` 文字规范 + 要点清单，**不带**独立模板文件与脚本。
-- 词汇：保留“模块”一词；新建 `CONTEXT.md` 沉淀 `模块/落盘/续作/步骤` 等术语（与 `docs/glossary.md` 并存）。
+- 词汇：保留“模块”一词；新建 `CONTEXT.md` 统一承载（含原 `docs/glossary.md` 7 词，已合表清理，无跳转）。
 
 ### 7. 旧章与 dogfood
 
 - 全局 `~/.claude/CLAUDE.md` 原 Plan 持久化章：删正文留一句路由（指向 `/plan-persist`）。
 - 首个 dogfood：本 skill 自身的构建即用新规范建 `01-plan-persist-skill.md` 自举。
+
+### 8. 工程优化（grill-me P1 附加）
+
+- 合表：`docs/glossary.md` 内容合入 `CONTEXT.md`，原文件删除（无跳转）。
+- 分工：`README.md` 重塑为人类入口（Skill 表“适合谁”+ 安装三步），`AGENT.md` 专为 agents（硬约束/检查清单），各司其职。
+- 软链：项目根 `CLAUDE.md → AGENT.md` 相对软链（`120000`，`cat` 跟随、`git ls-files` 可跟踪），经本地 `git init` 验证，Muse 以常规文件读取会跟随。
 
 ## 备选与否决
 
@@ -71,6 +77,7 @@
 
 ## 后果
 
-- `CONTEXT.md` 成为项目协作语言的单一事实源，`docs/glossary.md` 保留为发布机制词汇。
-- `.agent/plans/` gitignore，需在 `README`/`AGENT.md` 指引“安装即初始化”。
+- `CONTEXT.md` 为统一词汇单一事实源（原 `docs/glossary.md` 已合表删除）。
+- `.agent/plans/` gitignore，需在 `AGENT.md` 指引“安装即初始化”。
 - `index.md` 成为多 plan 发现的单一入口，模型承担同步维护职责。
+- 根 `CLAUDE.md` 为 `AGENT.md` 的相对软链（`120000`），Muse 以常规文件读取会跟随；检出方需 `core.symlinks=true`（macOS/Linux 默认）。

@@ -23,12 +23,12 @@ ls -la .agent/plans/ && readlink .claude/plans && cat .agent/plans/index.md
 ## 新建
 
 1. 读 `CONTEXT.md` 对齐术语；读 `.agent/plans/index.md` 定下一 `NN`。
-2. 按 `SKILL.md` 7 段（Context / 一源码与落位 / 二现状差距表 / 三协作关系 / 四大计划 / 五各模块小计划 / 六进度表 / 七执行记录 + 验证）写入 `NN-<slug>.md`。
+2. 按 `SKILL.md` 5 段+验证（Context / 模块归类表[可展开为源码与落位/现状差距/协作关系三表] / 大计划 / 各模块小计划 / 进度表+执行记录 / 验证）写入 `NN-<slug>.md`。
 3. 在 `index.md` 追加一行 `NN - 标题 (进行中)`。
 
 ## 执行中更新
 
-- 每完成一模块：进度表该行改 `☑ 已完成 (YYYY-MM-DD)`，七、执行记录追加一行 `日期 | 动作 | 备注`，`index.md` 状态同步。
+- 每完成一模块：进度表该行改 `☑ 已完成 (YYYY-MM-DD)`，执行记录追加一行 `日期 | 动作 | 备注`，`index.md` 状态同步。
 - 增删文件同步改“源码与落位”与“现状差距表”。
 - 小改原位留痕；大范围变更另起新 `NN+1-*.md`，旧 plan 标“已废弃 → NN+1”并 `mv` 至 `archived/`。
 
