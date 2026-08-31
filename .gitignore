@@ -222,6 +222,7 @@ sub2cfg/sample/real-*
 
 # Others
 .claude/
+.agent/
 .codegraph/
 **/.DS_Store
 .tokensave

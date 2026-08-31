@@ -1,37 +1,38 @@
 # skills
 
-Claude Code skill 集合仓库。每个 skill 由一个根目录的 `.md` 文件（索引 + frontmatter）和一个同名目录（完整定义 `SKILL.md` + 实现文件 + `AGENT.md`）组成。
+Claude Code skill 集合 — 按需取用的可独立发布技能。
 
-## Skill 列表
+每个 skill 可单独下载安装：根目录 `<name>.md` + 同名目录 `<name>/`，开箱即用。
 
-| Skill | 技能定义 | 详细说明 | 描述 |
-|-------|----------|----------|------|
-| [sub2cfg](sub2cfg.md) | `sub2cfg.md` | `sub2cfg/AGENT.md` | 订阅链接转代理配置 |
-| [commit-message](commit-message.md) | `commit-message.md` | `commit-message/AGENT.md` | 按 Conventional Commits 规范生成提交信息 |
+## Skills
 
-## 文档层次
+| Skill | 一句话 | 适合谁 |
+|-------|--------|--------|
+| [sub2cfg](sub2cfg.md) | 订阅链接转 Clash/Sing-box/DAE 完整配置 | 有代理订阅需转配置 |
+| [commit-message](commit-message.md) | 按 Conventional Commits 生成提交信息 | 写提交时想规范化 |
+| [plan-persist](plan-persist.md) | 复杂任务先落盘再开工，进度可中断续作 | ≥3 步骤或需跨会话执行的任务 |
 
-- **根目录 `.md` 文件**：skill 索引（frontmatter + 指引），供用户/Agent 发现；完整定义在 `{skill}/SKILL.md`
-- **`{skill}/SKILL.md`**：Anthropic 标准技能入口，完整 skill 定义（cc-switch 从 ZIP 安装、Claude Code 识别 skill 均依赖它）
-- **`{skill}/AGENT.md`**：skill 运行说明，含命令、架构、扩展指南
-- **`{skill}/` 内其他文档**：仅放功能上依赖的文档（被代码引用、运行时需要）
-- **`docs/{skill}/`**：开发者看的参考文档（架构设计、设计决策），skill 运行时不依赖
-- **`CLAUDE.md`**：纯索引，不含任何 skill 的具体信息，避免污染上下文
+更多能力见各 `SKILL.md`。
 
-## 安装方式
+## 安装
 
-每个 skill 独立发版，通过 GitHub Actions 手动触发（`Actions → Release Skill → 输入 skill 名`）。发布流程自动完成 VERSION patch +1、打 tag（`<skill>-v<ver>`）、生成 zip 资产（内含 `<name>.md` + `<name>/` 目录）并创建 GitHub Release。
+1. 打开 [Releases](https://github.com/caleee/skills/releases)，选目标 skill 的版本（`{skill}-v{ver}`）
+2. 下载 `*.zip` 并解压，得 `<name>.md` + `<name>/`
+3. 放到本地 skill 目录：
+   - Claude Code：`~/.claude/skills/`
+   - Codex / 通用：`~/.agents/skills/` 或 `~/.config/opencode/skills/`
 
-安装步骤：
+## 给维护者
 
-1. 打开 [Releases](https://github.com/caleee/skills/releases)，选择目标 skill 的版本（如 `sub2cfg-v0.1.2`）
-2. 下载 zip 资产（`<skill>-v<ver>.zip`）并解压，得到 `<name>.md` + `<name>/` 目录
-3. 放入 skill 目录：Claude Code 用 `~/.claude/skills/`，opencode 用 `~/.config/opencode/skills/`
+新增 skill 需同时满足仓库规范与发布机制，详见 [AGENT.md](AGENT.md) 与 `docs/adr/0001-version-and-release-strategy.md`。
 
-## 新增 Skill
+简要步骤：建 `<name>.md`（单行 description）+ `<name>/SKILL.md`/`AGENT.md`/`VERSION`（`0.1.0`）→ `git add` 全部跟踪 → 更新 `AGENT.md`/`README.md` 索引 → Actions `Release Skill` 填 skill 名发布。
 
-1. 创建根目录 `{skill}.md`（含 `name` / 单行 `description` frontmatter，正文只放一句指引）
-2. 创建同名 `{skill}/` 目录，内含 `SKILL.md`（完整定义，与根文件 frontmatter 一致）和 `AGENT.md` 运行说明
-3. 创建 `{skill}/VERSION`（初始如 `0.1.0`）
-4. 更新 `CLAUDE.md` 与 `README.md` 的 Skill 列表
-5. 需要发布时，在 Actions 触发 Release Skill
+## 词汇
+
+- 协作语言见 [CONTEXT.md](CONTEXT.md)
+- 发布机制 ADR 见 [docs/adr/](docs/adr/)
+
+## 许可
+
+[LICENSE](LICENSE)
