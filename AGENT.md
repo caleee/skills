@@ -13,6 +13,7 @@ Claude Code skill 集合仓库（人类入口见 [`README.md`](README.md)）。�
 | sub2cfg | `sub2cfg.md` | `sub2cfg/` | 订阅链接转 Clash/Sing-box/DAE 完整配置 |
 | commit-message | `commit-message.md` | `commit-message/` | 按 Conventional Commits 生成提交信息 |
 | plan-persist | `plan-persist.md` | `plan-persist/` | 复杂任务先落盘（`.agent/plans/NN-<slug>.md`）再开工，进度表驱动中断续作 |
+| obscura | `obscura.md` | `obscura/` | 隐身无头浏览器 — JS 渲染抓取、截图对比、CDP/MCP 自动化 |
 
 ## 文档层次（agent 视角）
 
