@@ -25,17 +25,13 @@ user-invocable: true
 ## 执行
 
 ```bash
-# 全量自检（人类可读）
-bash agent-doctor/scripts/doctor.sh
+# 安装后（示例装在 ~/.agents/skills/；Claude Code 为 ~/.claude/skills/）
+DOCTOR=~/.agents/skills/agent-doctor/scripts/doctor.sh
 
-# 机器可读（便于对比两次结果）
-bash agent-doctor/scripts/doctor.sh --json
-
-# 只看问题
-bash agent-doctor/scripts/doctor.sh --quiet
-
-# 额外探测 URL 型 MCP 连通性（联网；默认跳过）
-bash agent-doctor/scripts/doctor.sh --online
+bash "$DOCTOR"            # 全量自检（人类可读）
+bash "$DOCTOR" --json     # 机器可读（便于对比两次结果）
+bash "$DOCTOR" --quiet    # 只看问题
+bash "$DOCTOR" --online   # 额外探测 URL 型 MCP 连通性（联网；默认跳过）
 ```
 
 零依赖：仅 `bash` + POSIX 工具；`jq` 可选（缺失时相关检查降级为 warn/info）。

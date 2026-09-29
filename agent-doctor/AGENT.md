@@ -3,7 +3,11 @@
 ## 运行
 
 ```bash
-bash agent-doctor/scripts/doctor.sh [--json|--quiet|--online|--help]
+# 安装后（示例装在 ~/.agents/skills/；Claude Code 为 ~/.claude/skills/）
+bash ~/.agents/skills/agent-doctor/scripts/doctor.sh [--json|--quiet|--online|--help]
+
+# 在本仓内开发时
+bash agent-doctor/scripts/doctor.sh
 ```
 
 - 零依赖：仅 `bash` + POSIX 工具（`find`/`grep`/`sed`/`tr`）；`jq` 可选（缺失时 JSON 相关检查降级为 warn/info）。
