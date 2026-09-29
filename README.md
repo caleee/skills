@@ -12,6 +12,7 @@ Claude Code skill 集合 — 按需取用的可独立发布技能。
 | [commit-message](commit-message.md) | 按 Conventional Commits 生成提交信息 | 写提交时想规范化 |
 | [plan-persist](plan-persist.md) | 复杂任务先落盘再开工，进度可中断续作 | ≥3 步骤或需跨会话执行的任务 |
 | [obscura](obscura.md) | 隐身无头浏览器 — JS 渲染抓取、截图对比、CDP/MCP 自动化 | 需渲染抓取/反指纹/浏览器自动化 |
+| [agent-doctor](agent-doctor.md) | 本机多 agent 能力自检 — 一条命令核验配置是否真生效 | 装了一堆 agent 工具、担心“装了没生效” |
 
 更多能力见各 `SKILL.md`。
 

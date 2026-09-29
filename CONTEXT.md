@@ -15,6 +15,7 @@
 | **bump commit** | 发版时由 `github-actions[bot]` 产生的自动提交，更新 VERSION 文件，message 格式 `chore(<skill>): release v<ver> [skip ci]` | — |
 | **description** | skill 根 `.md` frontmatter 中的 `description` 字段，作为 Release 说明的 skill 用途简介 | — |
 | **持久化 plan（plan-persist）** | 对“≥3 步骤或用户明示‘先规划/做大 plan’”的复杂任务，先落盘再开工的执行看板；以 `.agent/plans/NN-<slug>.md` 为载体，以进度表为唯一可信源 | planning / planning-plan / 计划文档（泛称） |
+| **Doctor（自检）** | 对 agent 环境做**只读**健康检查的机制；**本体是零 agent 依赖的脚本**、skill 仅作入口（skill 机制失效时仍可运行）。只诊断不修复 | health check / 体检（泛称） |
 | **模块** | 一组强内聚的文件/职责簇（如一个 skill、一个子系统、一个文档域），是 plan 中拆分与验收的单位 | 组件/子任务（粒度不定） |
 | **步骤** | 单个可验证的原子动作（改 N 个文件、跑一次验证、发一个 commit），是“≥3 步骤”阈值的计数单位 | task（易与 issue tracker 混） |
 | **落盘** | 将 plan 按 5 段骨架写入 `.agent/plans/NN-<slug>.md` 并同步更新 `.agent/plans/index.md` | 保存/持久化（口语） |
