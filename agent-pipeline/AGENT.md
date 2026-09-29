@@ -29,7 +29,7 @@ ln -s ../../../.agents/skills/agent-pipeline ~/.pi/agent/skills/agent-pipeline
 | 环 | 项目侧要有的位置 |
 |---|---|
 | 1 | 计划有「缘起／需求理解」节 |
-| 2 | 计划索引有登记行 |
+| 2 | 计划索引有登记行；`Context` 段有事实取证（`file:line`／命令／一手链接） |
 | 3 | 计划头可写 `> 审阅: <日期> <结论>` |
 | 4 | 进度表（每行一模块，含状态列） |
 | 5/6 | 「执行记录」段（追加式） |
@@ -41,11 +41,13 @@ ln -s ../../../.agents/skills/agent-pipeline ~/.pi/agent/skills/agent-pipeline
 
 ## 触发方式
 
+**默认自动**：agent 遇任务先按 `SKILL.md` §1 分诊，**L1 及以上自动进入对应环**——不必等用户点名。显式指定用于**覆盖起点或力度**。
+
 | 场景 | 怎么起 |
 |---|---|
-| 走完整条流水线 | 显式说「按 agent-pipeline 执行 <任务>」 |
+| 自动（默认） | 直接说任务——agent 自行分诊并走对应环 |
+| 指定起点／力度 | 「按 agent-pipeline 执行 <任务>」「只走执行环」「这是 L3」 |
 | 中途接入 | 直接说「接入流水线」或「继续 <计划>」，agent 先做 §0 位置判定 |
-| 只跑某一环 | 直接点名该环的 skill（`grilling`／`plan-persist`／`simplify-code`…） |
 | 托管 | 说「托管跑／无人值守」；或建 `.agent/pipeline/autonomy`；或声明段写 `托管默认: 开` |
 
 ## 覆盖与扩展
