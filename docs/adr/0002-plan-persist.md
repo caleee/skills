@@ -1,6 +1,7 @@
 # ADR-0002: 持久化规划 Skill（plan-persist）
 
 - 状态：已接受（grilling 35 决收束）
+- 修订：2026-09-29 根 `AGENT.md` 更名为 `AGENTS.md`（见 ADR-0003），下文相关文件名已同步
 - 日期：2026-08-31
 - 前序：ADR-0001（版本与发布策略）、全局 `~/.claude/CLAUDE.md` Plan 持久化规则、现有实稿 `~/.claude/plans/squishy-weaving-bumblebee.md`
 
@@ -61,8 +62,8 @@
 ### 8. 工程优化（grill-me P1 附加）
 
 - 合表：`docs/glossary.md` 内容合入 `CONTEXT.md`，原文件删除（无跳转）。
-- 分工：`README.md` 重塑为人类入口（Skill 表“适合谁”+ 安装三步），`AGENT.md` 专为 agents（硬约束/检查清单），各司其职。
-- 软链：项目根 `CLAUDE.md → AGENT.md` 相对软链（`120000`，`cat` 跟随、`git ls-files` 可跟踪），经本地 `git init` 验证，Muse 以常规文件读取会跟随。
+- 分工：`README.md` 重塑为人类入口（Skill 表“适合谁”+ 安装三步），`AGENTS.md` 专为 agents（硬约束/检查清单），各司其职。
+- 软链：项目根 `CLAUDE.md → AGENTS.md` 相对软链（`120000`，`cat` 跟随、`git ls-files` 可跟踪），经本地 `git init` 验证，Muse 以常规文件读取会跟随。
 
 ## 备选与否决
 
@@ -78,6 +79,6 @@
 ## 后果
 
 - `CONTEXT.md` 为统一词汇单一事实源（原 `docs/glossary.md` 已合表删除）。
-- `.agent/plans/` gitignore，需在 `AGENT.md` 指引“安装即初始化”。
+- `.agent/plans/` gitignore，需在 `AGENTS.md` 指引“安装即初始化”。
 - `index.md` 成为多 plan 发现的单一入口，模型承担同步维护职责。
-- 根 `CLAUDE.md` 为 `AGENT.md` 的相对软链（`120000`），Muse 以常规文件读取会跟随；检出方需 `core.symlinks=true`（macOS/Linux 默认）。
+- 根 `CLAUDE.md` 为 `AGENTS.md` 的相对软链（`120000`），Muse 以常规文件读取会跟随；检出方需 `core.symlinks=true`（macOS/Linux 默认）。

@@ -26,9 +26,9 @@ Claude Code skill 集合 — 按需取用的可独立发布技能。
 
 ## 给维护者
 
-新增 skill 需同时满足仓库规范与发布机制，详见 [AGENT.md](AGENT.md) 与 `docs/adr/0001-version-and-release-strategy.md`。
+新增 skill 需同时满足仓库规范与发布机制，详见 [AGENTS.md](AGENTS.md) 与 `docs/adr/0001-version-and-release-strategy.md`。
 
-简要步骤：建 `<name>.md`（单行 description）+ `<name>/SKILL.md`/`AGENT.md`/`VERSION`（`0.1.0`）→ `git add` 全部跟踪 → 更新 `AGENT.md`/`README.md` 索引 → Actions `Release Skill` 填 skill 名发布。
+简要步骤：建 `<name>.md`（单行 description）+ `<name>/SKILL.md`/`AGENT.md`/`VERSION`（`0.1.0`）→ `git add` 全部跟踪 → 更新 `AGENTS.md`/`README.md` 索引 → Actions `Release Skill` 填 skill 名发布。
 
 ## 词汇
 

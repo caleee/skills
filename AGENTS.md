@@ -1,4 +1,4 @@
-# AGENT.md — for agents working in this repo
+# AGENTS.md — for agents working in this repo
 
 > 协作语言先读 [`CONTEXT.md`](CONTEXT.md)；发布机制详见 [`docs/adr/0001-version-and-release-strategy.md`](docs/adr/0001-version-and-release-strategy.md)。
 
@@ -22,7 +22,7 @@ Claude Code skill 集合仓库（人类入口见 [`README.md`](README.md)）。�
 - **`<name>/SKILL.md`**：Anthropic 标准 skill 入口，完整定义；`cc-switch` 从 ZIP 安装、Claude Code 识别均依赖它
 - **`<name>/AGENT.md`**：skill 运行时指引（命令/架构/扩展）
 - **`<name>/` 内其他文件**：仅放运行时依赖的文档/代码
-- **根 `AGENT.md`（本文件）**：仓库级 agent 约束与清单
+- **根 `AGENTS.md`（本文件）**：仓库级 agent 约束与清单
 - **根 `CONTEXT.md`**：共享词汇与边界（`Skill`/`VERSION`/`plan-persist`/五态机等）
 - **`docs/adr/`**：架构决策；`docs/{skill}/`：skill 参考文档（运行时不依赖）
 
@@ -49,5 +49,5 @@ Claude Code skill 集合仓库（人类入口见 [`README.md`](README.md)）。�
 1. `<name>.md` 含 `name` + 单行 `description`，正文仅一句指引
 2. `<name>/` 含 `AGENT.md` + `SKILL.md` + `VERSION`（合法 semver）
 3. 目录内文件已全部 `git add`
-4. `AGENT.md`（本文件）与 `README.md` 索引已同步
+4. `AGENTS.md`（本文件）与 `README.md` 索引已同步
 5. `CONTEXT.md` 词汇已对齐新增术语

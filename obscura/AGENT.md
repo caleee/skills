@@ -78,7 +78,7 @@ mcp     MCP 服务器：stdio 或 HTTP，先导航后 snapshot/操作；无 scre
    ```
 2. diff 上游新增的 dump 形态 / flag / CDP-MCP 能力，同步到 `obscura/SKILL.md` 的流程与参数表。
 3. 上游的 cargo 构建变体如有新增，按下面附录格式更新，**不要**搬回 SKILL.md 主体（brew 用户不需要）。
-4. `description` 保持单行；改动后跑一遍根 `AGENT.md` 完成检查清单。
+4. `description` 保持单行；改动后跑一遍根 `AGENTS.md` 完成检查清单。
 
 ### 附录：源码构建变体（仅维护者）
 
