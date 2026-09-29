@@ -13,6 +13,7 @@ Claude Code skill 集合 — 按需取用的可独立发布技能。
 | [plan-persist](plan-persist.md) | 复杂任务先落盘再开工，进度可中断续作 | ≥3 步骤或需跨会话执行的任务 |
 | [obscura](obscura.md) | 隐身无头浏览器 — JS 渲染抓取、截图对比、CDP/MCP 自动化 | 需渲染抓取/反指纹/浏览器自动化 |
 | [agent-doctor](agent-doctor.md) | 本机多 agent 能力自检 — 一条命令核验配置是否真生效 | 装了一堆 agent 工具、担心“装了没生效” |
+| [agent-pipeline](agent-pipeline.md) | 跨 agent 工作流水线编排 — 七环闸门、随时中途接入、多计划串行、无人值守托管 | 想让 agent 按固定流程干活、且不污染上下文 |
 
 更多能力见各 `SKILL.md`。
 
