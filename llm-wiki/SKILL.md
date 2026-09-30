@@ -87,7 +87,7 @@ user-invocable: true
 | `llmwiki build [--strict]` | 构建站点（strict＝警告即失败） | mkdocs |
 | `llmwiki serve start/stop/status [--full]` | 本地预览（默认增量） | mkdocs |
 | `llmwiki nav build` | **由目录生成导航**（`.pages`），落实 P4 | — |
-| `llmwiki lint [--semantic]` | P1 目录预算／断链／孤儿页；`--semantic` 加过时断言与跨页矛盾 | — |
+| `llmwiki lint [--semantic]` | P1 目录预算／断链／孤儿页（`nav_mode=auto` 时孤儿检查自动跳过——导航已含全部页面）；`--semantic` 加过时断言与跨页矛盾 | — |
 | `llmwiki drift` | 上游仓（如被调研代码）演进 vs 我方分析篇的**时差** | git |
 | `llmwiki export --llms-txt` | 生成 AI 可消费出口 | — |
 | `llmwiki pdf <src> <out> <stem>` | mermaid 转 PNG 中转（供 md→pdf） | mmdc |
