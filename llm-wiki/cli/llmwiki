@@ -1,0 +1,463 @@
+#!/usr/bin/env python3
+"""llmwiki — 知识库体系与文档站 CLI（`llm-wiki` skill）
+
+判据见 ../SKILL.md；项目配置见项目根 `.llm-wiki.toml`（模板见 ../TEMPLATE.md）。
+
+本体 **stdlib-only**；`build` / `serve` / `pdf` 三个子命令**调用**外部工具
+（`mkdocs` / `mmdc`），不内嵌。判据类命令（`nav` / `lint` / `drift` / `export`）零依赖。
+
+用法：
+  llmwiki check-deps                    校验 mkdocs 及插件（含主版本硬上限）
+  llmwiki build [--strict]              构建站点
+  llmwiki serve [start|stop|status] [--full] [--port N]
+  llmwiki nav build                     由目录生成导航 .pages（落实 P4）
+  llmwiki lint [--semantic] [--max N]   体检：目录预算 / 断链 / 孤儿 [＋语义]
+  llmwiki drift                         上游仓演进 vs 我方分析篇的时差
+  llmwiki export [--llms-txt] [--out F] 生成 AI 可消费出口
+  llmwiki pdf <src> <outdir> <stem>     mermaid → PNG 中转（供 md→pdf）
+"""
+from __future__ import annotations
+
+import argparse
+import fnmatch
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+import urllib.request
+from pathlib import Path
+
+try:
+    import tomllib
+except ModuleNotFoundError:                      # pragma: no cover
+    tomllib = None
+
+DEFAULTS: dict[str, object] = {
+    "site.root": "docs",
+    "site.site_dir": "site",
+    "site.config": "mkdocs.yml",
+    "site.port": 8000,
+    "site.nav_mode": "auto",                     # auto=P4 由目录生成 .pages
+    "lint.max_children": 24,
+    "lint.broken_links": True,
+    "lint.orphans": True,
+    "lint.ignore": [".tmp", "archive", "node_modules", ".git"],
+    "export.llms_txt": False,
+}
+
+#: 站点依赖的**主版本硬上限**：MkDocs 2.0 移除插件系统、重写主题，
+#: 依赖 plugins（search / git-revision-date）与 material 主题的站点不能被升上去。
+MAX_MAJOR = {"mkdocs": 1}
+
+
+# ─────────────────────────── 配置与项目定位 ───────────────────────────
+def find_root(start: Path | None = None) -> Path:
+    """向上找项目根：有 `.llm-wiki.toml` / `mkdocs.yml` / `.git` 的最近一层。"""
+    cur = (start or Path.cwd()).resolve()
+    for d in [cur, *cur.parents]:
+        if any((d / f).exists() for f in (".llm-wiki.toml", "mkdocs.yml", ".git")):
+            return d
+    return cur
+
+
+def flatten(doc: dict, prefix: str = "") -> dict:
+    out = {}
+    for k, v in doc.items():
+        key = f"{prefix}{k}"
+        if isinstance(v, dict):
+            out.update(flatten(v, key + "."))
+        else:
+            out[key] = v
+    return out
+
+
+def load_cfg(root: Path, cli_port: int | None = None) -> dict:
+    cfg = dict(DEFAULTS)
+    f = root / ".llm-wiki.toml"
+    if f.exists():
+        if tomllib is None:
+            die("需要 Python 3.11+ 才能解析 .llm-wiki.toml")
+        cfg.update(flatten(tomllib.loads(f.read_text(encoding="utf-8"))))
+    cfg["_root"] = root
+    cfg["_watch"] = (tomllib.loads(f.read_text(encoding="utf-8"))
+                     .get("drift", {}).get("watch", [])) if (tomllib is not None and f.exists()) else []
+    if cli_port:
+        cfg["site.port"] = cli_port
+    return cfg
+
+
+def docs_dir(cfg: dict) -> Path:
+    return cfg["_root"] / str(cfg["site.root"])
+
+
+def die(msg: str, code: int = 1):
+    print(f"✗ {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def skip(path: Path, cfg: dict) -> bool:
+    return any(part in cfg["lint.ignore"] for part in path.parts)
+
+
+# ─────────────────────────── check-deps / build / serve ───────────────────────────
+DEPS = ["mkdocs", "mkdocs-material", "mkdocs-git-revision-date-localized-plugin"]
+
+
+def _too_new(pkg: str, cap: int) -> str | None:
+    try:
+        import importlib.metadata as md
+        ver = md.version(pkg)
+    except Exception:
+        return None
+    m = re.match(r"(\d+)", ver)
+    if m and int(m.group(1)) > cap:
+        return f"{pkg} {ver} 超出主版本上限 {cap}（{MAX_MAJOR.get(pkg)}）"
+    return None
+
+
+def cmd_check_deps(cfg, a):
+    missing, bad = [], []
+    for pkg in DEPS:
+        try:
+            import importlib.metadata as md
+            md.version(pkg)
+        except Exception:
+            missing.append(pkg)
+    for pkg, cap in MAX_MAJOR.items():
+        if pkg not in missing and (msg := _too_new(pkg, cap)):
+            bad.append(msg)
+    if missing:
+        print(f"缺少依赖: {', '.join(missing)}")
+        print(f"安装: {sys.executable} -m pip install {' '.join(missing)}")
+    for b in bad:
+        print(f"⚠ {b}")
+    if not missing and not bad:
+        print("依赖齐全")
+    return 0 if not missing and not bad else 1
+
+
+def _mkdocs_env(cfg: dict) -> dict:
+    env = dict(os.environ)
+    env.setdefault("DOCS_GIT_REVISION", "true")   # 产物带「最后更新日期」
+    return env
+
+
+def cmd_build(cfg, a):
+    cmd = [sys.executable, "-m", "mkdocs", "build",
+           "-f", str(cfg["site.config"])]
+    if a.strict:
+        cmd.append("--strict")
+    print("构建中（约 30–60s，无输出属正常）…", flush=True)
+    rc = subprocess.run(cmd, cwd=cfg["_root"], env=_mkdocs_env(cfg)).returncode
+    if rc != 0:
+        die("构建失败", rc)
+    print(f"已构建: {cfg['site.site_dir']}/")
+    return 0
+
+
+def _pidfile(cfg: dict) -> Path:
+    return Path(f"/tmp/llmwiki-{cfg['_root'].name}.pid")
+
+
+def _port_alive(port: int) -> int | None:
+    # 注意：`lsof -ti tcp:<port>` 是宽匹配（含客户端）⇒ 会连坐误杀；必须限定 LISTEN。
+    out = subprocess.run(["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
+                         capture_output=True, text=True).stdout.split()
+    return int(out[0]) if out else None
+
+
+def _wait_ready(port: int, child: subprocess.Popen, timeout: int = 90) -> bool:
+    end = time.time() + timeout
+    while time.time() < end:
+        if child.poll() is not None:
+            return False
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=2)
+            return True
+        except Exception:
+            time.sleep(0.5)
+    return False
+
+
+def cmd_serve(cfg, a):
+    port = int(a.port or cfg["site.port"])
+    action = a.action or "start"
+    if action == "status":
+        pid = _port_alive(port)
+        print(f"运行中: http://127.0.0.1:{port} (pid {pid})" if pid else "未运行")
+        return 0
+    if action == "stop":
+        pid = _port_alive(port)
+        if not pid:
+            print("未运行")
+            return 0
+        os.kill(pid, 15)
+        print(f"已停止 (pid {pid})")
+        return 0
+    # start
+    if _port_alive(port):
+        die(f"端口 {port} 已被占用")
+    cmd = [sys.executable, "-m", "mkdocs", "serve",
+           "-f", str(cfg["site.config"]), "-a", f"127.0.0.1:{port}"]
+    if not a.full:
+        cmd.append("--dirty")                     # 增量：改一个 md ~0.2s
+    log = open(f"/tmp/llmwiki-{cfg['_root'].name}.log", "w")
+    child = subprocess.Popen(cmd, cwd=cfg["_root"], env=_mkdocs_env(cfg),
+                             stdout=log, stderr=subprocess.STDOUT)
+    _pidfile(cfg).write_text(str(child.pid))
+    print(f"启动中… 首次构建约 10–40s（日志 {log.name}）")
+    print(f"就绪: http://127.0.0.1:{port}" if _wait_ready(port, child)
+          else "⚠ 超时未就绪，请查看日志")
+    return 0
+
+
+# ─────────────────────────── nav build（P4） ───────────────────────────
+def _h1(path: Path) -> str | None:
+    try:
+        for ln in path.read_text(encoding="utf-8").splitlines():
+            if ln.startswith("# "):
+                return ln[2:].strip()
+    except Exception:
+        pass
+    return None
+
+
+def cmd_nav_build(cfg, a):
+    """为每个目录生成 `.pages`（MkDocs awesome-pages 插件读），使**目录即导航**。"""
+    root = docs_dir(cfg)
+    if not root.exists():
+        die(f"知识库根不存在：{root}")
+    n = 0
+    for d in sorted([root, *[p for p in root.rglob("*") if p.is_dir()]]):
+        if skip(d.relative_to(root), cfg):
+            continue
+        if not any(f.suffix == ".md" for f in d.iterdir() if f.is_file()):
+            continue
+        title = _h1(d / "index.md") if (d / "index.md").exists() else None
+        pages = d / ".pages"
+        body = f"title: {title}\n" if title else ""
+        if not body and pages.exists():
+            continue
+        if a.dry_run:
+            print(f"（dry-run）{pages.relative_to(root)}  title={title or '（无 index，仅占位）'}")
+            continue
+        pages.write_text(body or "nav: []\n", encoding="utf-8")
+        n += 1
+    print("（dry-run 结束）" if a.dry_run else f"✓ 已生成/刷新 {n} 个 .pages（目录即导航）")
+    return 0
+
+
+# ─────────────────────────── lint ───────────────────────────
+LINK_RE = re.compile(r"\[[^\]]*\]\(([^)#\s]+)(?:#[^)]*)?\)")
+
+
+def _collect_md(root: Path, cfg: dict) -> list[Path]:
+    return [p for p in sorted(root.rglob("*.md")) if not skip(p.relative_to(root), cfg)]
+
+
+def _lint_budget(root: Path, cfg: dict, max_children: int) -> list[str]:
+    """P1 目录预算：任一目录直接子项 ≤ N。"""
+    out = []
+    for d in [root, *[p for p in root.rglob("*") if p.is_dir()]]:
+        if skip(d.relative_to(root), cfg):
+            continue
+        kids = [f for f in d.iterdir()
+                if not f.name.startswith(".") and not (f.is_dir() and skip(f.relative_to(root), cfg))]
+        if len(kids) > max_children:
+            out.append(f"[P1] {d.relative_to(root)} 直接子项 {len(kids)} > {max_children}（需分组）")
+    return out
+
+
+def _lint_links(root: Path, files: list[Path]) -> list[str]:
+    out = []
+    for f in files:
+        text = f.read_text(encoding="utf-8")
+        for target in LINK_RE.findall(text):
+            if target.startswith(("http://", "https://", "mailto:", "#", "/")):
+                continue
+            dest = (f.parent / target.split("?")[0]).resolve()
+            if not dest.exists():
+                out.append(f"[断链] {f.relative_to(root)} → {target}")
+    return out
+
+
+#: 规范页永不进站，不需被链接——孤儿检查跳过
+_ORPHAN_SKIP = re.compile(r"^(AGENTS|CLAUDE)\.md$")
+
+
+def _lint_orphans(root: Path, files: list[Path]) -> list[str]:
+    referenced: set[Path] = set()
+    for f in files:
+        for target in LINK_RE.findall(f.read_text(encoding="utf-8")):
+            if target.startswith(("http", "mailto:", "#", "/")):
+                continue
+            dest = (f.parent / target.split("?")[0]).resolve()
+            referenced.add(dest)
+            if dest.is_dir():
+                referenced.add(dest / "index.md")
+    out = []
+    for f in files:
+        if f.name == "index.md" or _ORPHAN_SKIP.match(f.name):
+            continue
+        if f.resolve() not in referenced:
+            out.append(f"[孤儿] {f.relative_to(root)}（无任何页面链接到它）")
+    return out
+
+
+def _lint_semantic(root: Path, files: list[Path]) -> list[str]:
+    """语义层（启发式）：过时标记、疑似矛盾。
+
+    判据刻意保守——只报**机械可判**的信号，避免噪声。
+    """
+    out = []
+    stale_re = re.compile(r"(待确认|TODO|FIXME|过期|已失效|待补)", re.I)
+    for f in files:
+        text = f.read_text(encoding="utf-8")
+        n = len(stale_re.findall(text))
+        if n >= 3:
+            out.append(f"[过时] {f.relative_to(root)} 含 {n} 处待确认/过期标记（应清理或转成开放项）")
+    return out
+
+
+def cmd_lint(cfg, a):
+    root = docs_dir(cfg)
+    if not root.exists():
+        die(f"知识库根不存在：{root}")
+    files = _collect_md(root, cfg)
+    problems: list[str] = []
+    max_children = a.max if a.max is not None else int(cfg["lint.max_children"])
+    if max_children:
+        problems += _lint_budget(root, cfg, max_children)
+    if cfg["lint.broken_links"]:
+        problems += _lint_links(root, files)
+    if cfg["lint.orphans"]:
+        problems += _lint_orphans(root, files)
+    if a.semantic or cfg.get("lint.semantic"):
+        problems += _lint_semantic(root, files)
+    for p in problems:
+        print(f"⚠ {p}")
+    print(f"—— 扫描 {len(files)} 个 md / 问题 {len(problems)}"
+          f"{'（含语义层）' if (a.semantic or cfg.get('lint.semantic')) else ''}")
+    return 1 if problems else 0
+
+
+# ─────────────────────────── drift ───────────────────────────
+def _git_last_commit(path: Path) -> int | None:
+    r = subprocess.run(["git", "-C", str(path), "log", "-1", "--format=%ct", "--", "."],
+                       capture_output=True, text=True)
+    return int(r.stdout.strip()) if r.stdout.strip().isdigit() else None
+
+
+def cmd_drift(cfg, a):
+    watches = cfg.get("_watch") or []
+    if not watches:
+        print("（未配置 drift.watch；在 .llm-wiki.toml 里加 [[drift.watch]]）")
+        return 0
+    out = 0
+    for w in watches:
+        up = cfg["_root"] / w["upstream"]
+        an = cfg["_root"] / w["analysis"]
+        if not up.exists() or not an.exists():
+            print(f"⚠ 路径不存在：{w['upstream']} 或 {w['analysis']}")
+            out += 1
+            continue
+        t_up, t_an = _git_last_commit(up), _git_last_commit(an)
+        if t_up is None or t_an is None:
+            print(f"⚠ {w['upstream']}：无法读取 git 时间（非 git 仓？）")
+            out += 1
+            continue
+        if t_up > t_an:
+            days = (t_up - t_an) // 86400
+            print(f"⚠ [漂移] {w['analysis']} 比上游 {w['upstream']} 落后 {days} 天（上游有更新）")
+            out += 1
+        else:
+            print(f"= {w['analysis']} 与上游同步")
+    print(f"—— watch {len(watches)} 项 / 漂移 {out}")
+    return 1 if out else 0
+
+
+# ─────────────────────────── export / pdf ───────────────────────────
+def cmd_export(cfg, a):
+    root = docs_dir(cfg)
+    files = _collect_md(root, cfg)
+    if not a.llms_txt:
+        print("（未指定出口格式；试试 --llms-txt）")
+        return 0
+    lines = [f"# {cfg['_root'].name}", ""]
+    for f in files:
+        rel = f.relative_to(root)
+        title = _h1(f) or f.stem
+        lines.append(f"- [{title}]({rel.as_posix()})")
+    out = Path(a.out) if a.out else (root / "llms.txt")
+    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"✓ 已导出 {out}（{len(files)} 条）")
+
+
+PDF_THEME_MAP = {"monokai-warm": "dark", "dracula-soft": "dark"}
+
+
+def cmd_pdf(cfg, a):
+    theme = a.mermaid_theme or PDF_THEME_MAP.get(a.pdf_theme, "default")
+    out = Path(a.outdir)
+    out.mkdir(parents=True, exist_ok=True)
+    text = Path(a.src).read_text(encoding="utf-8")
+    idx = 0
+
+    def repl(m):
+        nonlocal idx
+        idx += 1
+        mmd = out / f"{a.stem}-{idx}.mmd"
+        png = (out / f"{a.stem}-{idx}.png").resolve()
+        mmd.write_text(m.group(1).strip() + "\n", encoding="utf-8")
+        subprocess.run(["mmdc", "-i", str(mmd), "-o", str(png), "-b", "transparent",
+                        "-s", "2", "-t", theme], check=True, capture_output=True)
+        return f"![图{idx}]({png})"
+
+    new = re.sub(r"```mermaid\n(.*?)```", repl, text, flags=re.S)
+    dest = out / f"{a.stem}.pdf.md"
+    dest.write_text(new, encoding="utf-8")
+    print(f"replaced {idx} diagrams -> {dest}")
+
+
+# ─────────────────────────── 入口 ───────────────────────────
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(prog="llmwiki", description="知识库体系与文档站 CLI")
+    ap.add_argument("--root", help="项目根（默认向上自动查找）")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("check-deps").set_defaults(fn=cmd_check_deps)
+
+    p = sub.add_parser("build"); p.add_argument("--strict", action="store_true")
+    p.set_defaults(fn=cmd_build)
+
+    p = sub.add_parser("serve")
+    p.add_argument("action", nargs="?", choices=["start", "stop", "status"], default="start")
+    p.add_argument("--full", action="store_true", help="全量构建（增删页/改 nav 后用）")
+    p.add_argument("--port", type=int)
+    p.set_defaults(fn=cmd_serve)
+
+    p = sub.add_parser("nav"); p.add_argument("action", choices=["build"])
+    p.add_argument("--dry-run", action="store_true"); p.set_defaults(fn=cmd_nav_build)
+
+    p = sub.add_parser("lint"); p.add_argument("--semantic", action="store_true")
+    p.add_argument("--max", type=int, help="P1 目录预算（覆盖配置）"); p.set_defaults(fn=cmd_lint)
+
+    sub.add_parser("drift").set_defaults(fn=cmd_drift)
+
+    p = sub.add_parser("export"); p.add_argument("--llms-txt", action="store_true")
+    p.add_argument("--out"); p.set_defaults(fn=cmd_export)
+
+    p = sub.add_parser("pdf")
+    p.add_argument("src"); p.add_argument("outdir"); p.add_argument("stem")
+    p.add_argument("--pdf-theme", default=""); p.add_argument("--mermaid-theme", default="")
+    p.set_defaults(fn=cmd_pdf)
+
+    a = ap.parse_args(argv)
+    root = Path(a.root).resolve() if a.root else find_root()
+    return a.fn(load_cfg(root, getattr(a, "port", None)), a) or 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
