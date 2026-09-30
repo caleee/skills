@@ -383,7 +383,11 @@ def cmd_lint(cfg, a):
     if cfg["lint.broken_links"]:
         problems += _lint_links(root, files)
     if cfg["lint.orphans"]:
-        problems += _lint_orphans(root, files, nav_paths(cfg))
+        if str(cfg.get("site.nav_mode", "manual")) == "auto":
+            # P4（结构即导航）：所有 md 默认进导航 ⇒「孤儿」判据不适用
+            print("· nav_mode=auto（P4）：跳过孤儿检查（导航自动包含全部页面）")
+        else:
+            problems += _lint_orphans(root, files, nav_paths(cfg))
     if a.semantic or cfg.get("lint.semantic"):
         problems += _lint_semantic(root, files)
     for p in problems:
