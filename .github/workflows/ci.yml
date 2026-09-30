@@ -1,0 +1,28 @@
+name: CI
+
+# llm-wiki CLI 的回归网：P0 级缺陷（deploy 缺 import、nav build 写空 nav、
+# lint 漏检）都会被这些冒烟测试直接测出。零第三方依赖，无需安装 mkdocs。
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 显式钉版本：tomllib 需 Python 3.11+，不能依赖 runner 默认版本漂移
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 冒烟测试（stdlib unittest）
+        run: python3 -m unittest discover -s tests -v
+
+      - name: 校验 CLI 可解析（语法与命令面）
+        run: python3 llm-wiki/cli/llmwiki --help >/dev/null
