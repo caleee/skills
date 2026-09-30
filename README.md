@@ -16,6 +16,10 @@ Claude Code skill 集合 — 按需取用的可独立发布技能。
 | [agent-pipeline](agent-pipeline.md) | 跨 agent 工作流水线编排 — 七环闸门、随时中途接入、多计划串行、无人值守托管 | 想让 agent 按固定流程干活、且不污染上下文 |
 | [llm-wiki](llm-wiki.md) | 知识库体系与文档站工具链 — 三层模型、目录四理念、落库分流、lint/drift/nav CLI | 文档越用越乱、想目录可导航且能保鲜 |
 | [office-docs](office-docs.md) | 办公文档零依赖定点编辑 — PPTX 精确改（文字/形状/表格/连线/图片）、md→xlsx | 改汇报 pptx、做 xlsx 交付表 |
+| [mysql-cli](mysql-cli.md) | MySQL 访问与管理 — 连库/查询/脚本/采样/备份/批量导入/迁移 checksum 自检 | agent 需连库查数或导入 |
+| [redis-cli](redis-cli.md) | Redis 访问 — 连通探测、任意命令透传、键枚举 | agent 需看/改 Redis 数据 |
+| [svc-ops](svc-ops.md) | 服务生命周期编排 — 服务表驱动起停/重启/状态/健康 | 本地多服务要一键起停 |
+| [http-probe](http-probe.md) | HTTP 探测与 API 调试 — 任意方法、JSON 体、鉴权头、契约解包 | agent 需调接口/探服务 |
 
 更多能力见各 `SKILL.md`。
 

@@ -1,0 +1,372 @@
+#!/usr/bin/env python3
+"""http-probe — HTTP 探测与 API 调试 CLI（`http-probe` skill）
+
+判据见 ../SKILL.md；项目配置见项目根 `.http-probe.toml`（模板见 ../TEMPLATE.md）。
+
+**零依赖**（`urllib`）的 HTTP 客户端：显式超时、非 2xx 也回显响应体、可选按项目响应契约
+（如 `{code,message,data}`）解包。**判据来自 skill，默认 base_url／鉴权头来自项目声明段**。
+
+子命令：
+  request <METHOD> <路径>   发请求（GET/POST/PUT/DELETE/PATCH…）
+  get  <路径>               request GET 的便捷别名
+  post <路径>               request POST 的便捷别名
+
+用法：
+  http-probe [--root DIR] [--base-url URL] [--timeout N] [--token T] [--header K:V]...
+             [--env-file F]... [--json] <子命令> [参数]
+
+项目根定位：`--root` → `HTTP_PROBE_ROOT` → 向上查找 `.http-probe.toml` → `.git`。
+base_url／鉴权取值优先级（高→低）：命令行 → --env-file/进程环境 → `.http-probe.toml` → 内置默认。
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
+from typing import Any, Mapping, Sequence
+
+try:
+    import tomllib
+except ModuleNotFoundError:                      # pragma: no cover
+    tomllib = None
+
+
+USAGE = """用法：
+  http-probe [--root DIR] [--base-url URL] [--timeout N] [--token T] [--header K:V]...
+             [--env-file F]... [--json] <子命令> [参数]
+
+子命令：
+  http-probe request <METHOD> <路径> [--data <json>] [--data-file F] [--param k=v]...
+  http-probe get  <路径>   ...        GET 便捷别名
+  http-probe post <路径>   ...        POST 便捷别名
+
+选项：`--data` JSON 体 ／ `--data-file` 从文件读体 ／ `--param k=v` query 参数（可多次）
+     ／ `--token` Bearer 令牌 ／ `--header K:V` 额外头（可多次，值支持 ${ENV} 展开）。
+
+输出：默认 `HTTP <状态>` + 响应体（JSON 美化）；`--json` 输出 {status, headers, body}。
+若 `.http-probe.toml [response]` 配了 code_field，则按该契约解包（业务码非 success 即退出 1）。
+"""
+
+DEFAULTS = {"base_url": "http://localhost:8080", "timeout": "15", "env_file": ""}
+DEFAULT_HEADERS = {"Accept": "application/json"}
+
+_ENV_LINE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$")
+
+
+class HttpError(RuntimeError):
+    """请求失败（连接/超时）或响应不符合契约。"""
+
+
+def _unquote(value: str) -> str:
+    v = value.strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in "'\"":
+        return v[1:-1]
+    return v
+
+
+def parse_env_text(text: str) -> dict[str, str]:
+    """解析 shell 风格 `.env` 文本（`export`／引号／`#` 注释）；不做变量展开。"""
+    out: dict[str, str] = {}
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        m = _ENV_LINE.match(raw)
+        if m:
+            out[m.group(1)] = _unquote(m.group(2))
+    return out
+
+
+def _find_root(start: Path | None = None) -> Path:
+    cur = (start or Path.cwd()).resolve()
+    for marker in (".http-probe.toml", ".git"):
+        for d in [cur, *cur.parents]:
+            if (d / marker).exists():
+                return d
+    return cur
+
+
+def _load_toml(root: Path) -> dict:
+    f = root / ".http-probe.toml"
+    if not f.exists():
+        return {}
+    if tomllib is None:
+        raise HttpError("需要 Python 3.11+ 才能解析 .http-probe.toml")
+    return tomllib.loads(f.read_text(encoding="utf-8"))
+
+
+class Context:
+    def __init__(self, root: Path, cfg: dict, env_files: list[str],
+                 cli_opts: dict, json_mode: bool):
+        self.root = root
+        self.cfg = cfg
+        self.env_files = env_files
+        self.cli = cli_opts
+        self.json = json_mode
+        self.conn = cfg.get("client") or {}
+        self.auth = cfg.get("auth") or {}
+        self.resp = cfg.get("response") or {}
+
+    def _env(self) -> dict[str, str]:
+        merged: dict[str, str] = {}
+        names = ([self.conn["env_file"]] if self.conn.get("env_file") else []) + self.env_files
+        for name in names:
+            p = Path(str(name)).expanduser()
+            if not p.is_absolute():
+                p = self.root / p
+            if p.is_file():
+                merged.update(parse_env_text(p.read_text(encoding="utf-8")))
+        merged.update(os.environ)
+        return merged
+
+    def base_url(self) -> str:
+        val = (self.cli.get("base-url") or self._env().get("HTTP_PROBE_BASE_URL")
+               or self.conn.get("base_url") or DEFAULTS["base_url"])
+        return _expand(str(val), self._env()).rstrip("/")
+
+    def timeout(self) -> int:
+        return int(self.cli.get("timeout") or self.conn.get("timeout") or DEFAULTS["timeout"])
+
+    def headers(self) -> dict[str, str]:
+        env = self._env()
+        headers = dict(DEFAULT_HEADERS)
+        for k, v in (self.auth.get("headers") or {}).items():
+            headers[str(k)] = _expand(str(v), env)
+        token = self.cli.get("token") or self.auth.get("token")
+        if token:
+            headers["Authorization"] = f"Bearer {_expand(str(token), env)}"
+        for raw in self.cli.get("header", []):
+            if ":" in raw:
+                k, v = raw.split(":", 1)
+                headers[k.strip()] = _expand(v.strip(), env)
+        return headers
+
+
+def _expand(value: str, env: Mapping[str, str]) -> str:
+    """`${VAR}` / `$VAR` 展开（只替换在 env 中存在的键，未知保持原样）。"""
+    def sub(m):
+        name = m.group(1) or m.group(2)
+        return env.get(name, m.group(0))
+    return re.sub(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)", sub, value)
+
+
+def http_request(method: str, url: str, *, data: Any = None,
+                 headers: Mapping[str, str] | None = None,
+                 timeout: int = 15) -> tuple[int, dict[str, str], str]:
+    """发请求，返回 `(状态码, 响应头, 响应体文本)`；**非 2xx 也回显响应体**（调试用）。"""
+    body = None
+    if data is not None:
+        body = data if isinstance(data, bytes) else json.dumps(data, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(url, data=body, headers=dict(headers or {}),
+                                 method=method.upper())
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, dict(resp.headers), resp.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        return exc.code, dict(exc.headers or {}), exc.read().decode("utf-8", errors="replace")
+    except urllib.error.URLError as exc:
+        raise HttpError(f"连接失败：{exc.reason}") from None
+    except TimeoutError:
+        raise HttpError(f"请求超时（{timeout}s）") from None
+
+
+def _parse(args: Sequence[str]):
+    """拆位置参数与选项；`--param`/`--header` 可重复（收成列表）。"""
+    pos: list[str] = []
+    opts: dict = {"param": [], "header": []}
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a.startswith("--"):
+            name = a[2:]
+            if "=" in name:
+                k, v = name.split("=", 1)
+            elif i + 1 < len(args) and not args[i + 1].startswith("--"):
+                k, v = name, args[i + 1]; i += 1
+            else:
+                k, v = name, True
+            if k in ("param", "header"):
+                opts[k].append(v)
+            else:
+                opts[k] = v
+        else:
+            pos.append(a)
+        i += 1
+    return pos, opts
+
+
+def _build_url(base: str, path: str, params: dict) -> str:
+    url = base + (path if path.startswith("/") or not path else "/" + path)
+    clean = {k: v for k, v in params.items() if v not in (None, "")}
+    if clean:
+        url += ("&" if "?" in url else "?") + urllib.parse.urlencode(clean)
+    return url
+
+
+def _do(ctx: Context, method: str, args: Sequence[str]) -> int:
+    pos, opts = _parse(args)
+    if not pos:
+        raise HttpError(f"用法：http-probe {method.lower()} <路径> [--data <json>] [--param k=v]")
+    path = pos[0]
+    params = {}
+    for p in opts["param"]:
+        if "=" in p:
+            k, v = p.split("=", 1)
+            params[k] = v
+    data = None
+    if opts.get("data") is not None and opts.get("data-file"):
+        raise HttpError("--data 与 --data-file 不能同时给")
+    if opts.get("data") is not None:
+        try:
+            data = json.loads(opts["data"])
+        except json.JSONDecodeError as exc:
+            raise HttpError(f"--data 不是合法 JSON：{exc}") from None
+    elif opts.get("data-file"):
+        p = Path(opts["data-file"])
+        if not p.is_file():
+            raise HttpError(f"文件不存在：{opts['data-file']}")
+        text = p.read_text(encoding="utf-8")
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            data = text      # 原样发送非 JSON 体
+
+    url = _build_url(ctx.base_url(), path, params)
+    status, headers, body = http_request(method, url, data=data,
+                                         headers=ctx.headers(), timeout=ctx.timeout())
+    return _emit(ctx, method, url, status, headers, body)
+
+
+def _emit(ctx: Context, method: str, url: str, status: int,
+          headers: dict, body: str) -> int:
+    """输出响应；配了 `[response] code_field` 则按契约解包（业务码非 success ⇒ 退出 1）。"""
+    parsed = _try_json(body)
+    code_field = ctx.resp.get("code_field")
+
+    if ctx.json:
+        out = {"method": method.upper(), "url": url, "status": status,
+               "content_type": headers.get("Content-Type", ""),
+               "body": parsed if parsed is not None else body}
+        if code_field and isinstance(parsed, dict):
+            code = parsed.get(code_field)
+            out["code"] = code
+            out["ok"] = code == ctx.resp.get("success_value", 0)
+        json.dump(out, sys.stdout, ensure_ascii=False, indent=2)
+        sys.stdout.write("\n")
+    else:
+        print(f"HTTP {status}  {method.upper()} {url}")
+        if code_field and isinstance(parsed, dict) and code_field in parsed:
+            code = parsed.get(code_field)
+            success = ctx.resp.get("success_value", 0)
+            if code != success:
+                msg = parsed.get("message") or f"业务码 {code}"
+                print(f"错误：{msg}", file=sys.stderr)
+                return 1
+            data_field = ctx.resp.get("data_field")
+            payload = parsed.get(data_field) if data_field else parsed
+            _print_body(payload)
+        else:
+            _print_body(parsed if parsed is not None else body)
+
+    if code_field and isinstance(parsed, dict) and code_field in parsed:
+        return 0 if parsed.get(code_field) == ctx.resp.get("success_value", 0) else 1
+    return 0 if 200 <= status < 400 else 1
+
+
+def _try_json(text: str):
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return None
+
+
+def _print_body(obj) -> None:
+    if isinstance(obj, (dict, list)):
+        print(json.dumps(obj, ensure_ascii=False, indent=2))
+    elif obj is None:
+        print("（空响应体）")
+    else:
+        print(obj)
+
+
+def _split_globals(argv: list[str]):
+    root = None
+    json_mode = False
+    cli_opts: dict = {"header": []}
+    env_files: list[str] = []
+    out: list[str] = []
+    repeat = ("header",)
+    single = ("base-url", "timeout", "token")
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--json":
+            json_mode = True
+        elif a == "--root" and i + 1 < len(argv):
+            root = argv[i + 1]; i += 1
+        elif a.startswith("--root="):
+            root = a.split("=", 1)[1]
+        elif a == "--env-file" and i + 1 < len(argv):
+            env_files.append(argv[i + 1]); i += 1
+        elif a.startswith("--env-file="):
+            env_files.append(a.split("=", 1)[1])
+        elif a.startswith("--") and a[2:] in repeat and i + 1 < len(argv):
+            cli_opts[a[2:]].append(argv[i + 1]); i += 1
+        elif a.startswith("--") and a[2:] in single and i + 1 < len(argv):
+            cli_opts[a[2:]] = argv[i + 1]; i += 1
+        elif a.startswith("--") and "=" in a and a[2:].split("=", 1)[0] in (*single, *repeat):
+            k, v = a[2:].split("=", 1)
+            (cli_opts[k].append(v) if k in repeat else cli_opts.__setitem__(k, v))
+        else:
+            out.append(a)
+        i += 1
+    return root, env_files, json_mode, cli_opts, out
+
+
+_METHODS = {"request", "get", "post", "put", "delete", "patch", "head", "options"}
+
+
+def dispatch(args: list[str], ctx: Context) -> int:
+    cmd, rest = args[0], args[1:]
+    if cmd == "request":
+        if not rest or not rest[0].upper().isalpha():
+            raise HttpError("用法：http-probe request <METHOD> <路径>")
+        method = rest[0]
+        return _do(ctx, method, rest[1:])
+    if cmd in _METHODS:
+        return _do(ctx, cmd.upper(), rest)
+    print(f"未知命令 {cmd!r}\n{USAGE}", file=sys.stderr)
+    return 2
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    root_arg, env_files, json_mode, cli_opts, rest = _split_globals(argv)
+
+    if root_arg:
+        root = Path(root_arg).expanduser().resolve()
+    else:
+        env = os.environ.get("HTTP_PROBE_ROOT")
+        root = Path(env).expanduser().resolve() if env else _find_root()
+
+    if not rest or rest[0] in ("-h", "--help"):
+        print(USAGE)
+        return 0
+    try:
+        cfg = _load_toml(root)
+        ctx = Context(root, cfg, env_files, cli_opts, json_mode)
+        return dispatch(rest, ctx)
+    except HttpError as exc:
+        print(f"错误：{exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

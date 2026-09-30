@@ -20,10 +20,22 @@
       "path": "commit-message/"
     },
     {
+      "name": "http-probe",
+      "description": "HTTP 探测与 API 调试 CLI — 零依赖 urllib，显式超时、非 2xx 回显响应体、可选按项目响应契约解包；默认 base_url/鉴权头走项目声明段",
+      "version": "0.1.0",
+      "path": "http-probe/"
+    },
+    {
       "name": "llm-wiki",
       "description": "知识库体系与文档站工具链 — 三层模型（源/编译/出口）· 目录预算四理念 · 落库分流 · 导航可达性与标记密度体检 · 漂移检测 · 站点 CLI",
       "version": "0.1.3",
       "path": "llm-wiki/"
+    },
+    {
+      "name": "mysql-cli",
+      "description": "MySQL 访问与管理 CLI — 复用本机 mysql/mysqldump 零依赖，口令走 MYSQL_PWD 不落 history；连通性/查询/脚本/表清单/采样/备份/批量导入（由 INSERT 推断建表 DDL）/Flyway checksum 自检",
+      "version": "0.1.0",
+      "path": "mysql-cli/"
     },
     {
       "name": "obscura",
@@ -44,10 +56,22 @@
       "path": "plan-persist/"
     },
     {
+      "name": "redis-cli",
+      "description": "Redis 访问 CLI — 复用本机 redis-cli 零依赖，口令走 REDISCLI_AUTH 不落 history；连通探测、任意命令透传、键枚举",
+      "version": "0.1.0",
+      "path": "redis-cli/"
+    },
+    {
       "name": "sub2cfg",
       "description": "订阅链接转代理配置 — 从订阅 URL 或节点信息生成 Clash/Sing-box/DAE 三平台完整配置",
       "version": "0.1.4",
       "path": "sub2cfg/"
+    },
+    {
+      "name": "svc-ops",
+      "description": "服务生命周期编排 CLI — 服务表驱动 start/stop/restart/status/health；后台起进程、PID/日志落盘、等就绪、端口只回收监听者",
+      "version": "0.1.0",
+      "path": "svc-ops/"
     }
   ]
 }

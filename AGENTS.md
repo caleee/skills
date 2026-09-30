@@ -18,6 +18,10 @@ Claude Code skill 集合仓库（人类入口见 [`README.md`](README.md)）。�
 | agent-pipeline | `agent-pipeline.md` | `agent-pipeline/` | 跨 agent 工作流水线编排 — 七环闸门/中途接入/多计划串行与上下文卫生/无人值守托管 |
 | llm-wiki | `llm-wiki.md` | `llm-wiki/` | 知识库体系与文档站工具链 — 三层模型/目录四理念/落库分流/lint·drift·nav CLI |
 | office-docs | `office-docs.md` | `office-docs/` | 办公文档零依赖定点编辑 — PPTX 文字/形状/表格/连线/图片精确改 · XLSX 读取与 md→xlsx · 只读模板基线 |
+| mysql-cli | `mysql-cli.md` | `mysql-cli/` | MySQL 访问与管理 — 连库/查询/脚本/表清单/采样/备份/批量导入（INSERT→DDL）/Flyway checksum 自检 |
+| redis-cli | `redis-cli.md` | `redis-cli/` | Redis 访问 — 连通探测 · 任意命令透传 · 键枚举 |
+| svc-ops | `svc-ops.md` | `svc-ops/` | 服务生命周期编排 — 服务表驱动 start/stop/restart/status/health · PID/日志/就绪/端口回收 |
+| http-probe | `http-probe.md` | `http-probe/` | HTTP 探测与 API 调试 — 任意方法/JSON 体/query/鉴权头 · 响应契约解包 |
 
 ## 文档层次（agent 视角）
 

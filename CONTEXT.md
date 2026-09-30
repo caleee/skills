@@ -37,13 +37,17 @@
 | **office-docs（办公文档）** | 管办公文档**内容轴**的 skill：PPTX 零依赖定点编辑（只改目标字节、可 diff 回填）／XLSX 读取与 md→xlsx。**判据来自 skill，基线取值来自项目 `## 办公文档` 声明段 ＋ `.office-docs.toml`** | 汇报材料编辑（泛称） |
 | **ref（office-docs 寻址）** | PPTX 内定位单元的坐标语法（`slide2!sp[3]`／`slide2!tbl0.r1.c2`／`.p0`）；序号与 `dump` 一致，坐标一律 pt | 位置引用（易与行号混） |
 | **`.office-docs.toml`** | 项目根的**机器可读**配置（只读模板基线目录）；与 `AGENTS.md` 的 `## 办公文档`（自然语言）声明段配套 | — |
+| **mysql-cli（数据库访问）** | 管**数据库访问与搬运**的 skill：连通探测／查询／脚本／表清单／采样／备份／批量导入（INSERT→DDL）／Flyway checksum 自检。**判据来自 skill，连接取值来自项目 `## 数据库` 声明段 ＋ `.mysql-cli.toml`** | DB 工具（泛称） |
+| **redis-cli（缓存访问）** | 管 **Redis 访问**的 skill：连通探测／任意命令透传／键枚举。**判据来自 skill，连接取值来自项目 `## 缓存` 声明段 ＋ `.redis-cli.toml`** | 缓存工具（泛称） |
+| **svc-ops（服务编排）** | 管**本地服务生命周期**的 skill：服务表驱动的 start/stop/restart/status/health；PID/日志落盘、等就绪、端口**只回收监听者**。**判据来自 skill，服务表来自项目 `## 本地服务` 声明段 ＋ `.svc-ops.toml`** | 进程管理（泛称） |
+| **http-probe（接口调试）** | 管 **HTTP 探测**的 skill：任意方法／JSON 体／query／鉴权头；非 2xx 回显响应体、可选契约解包。**判据来自 skill，base_url/鉴权来自项目 `## 接口调试` 声明段 ＋ `.http-probe.toml`** | 接口测试（泛称） |
 | **skills.json** | 仓根的**机器可读** skill 清单（name/description/version/path）；由 `scripts/gen_skills_json.py` 从 `<name>.md` ＋ `<name>/VERSION` **派生**，`--check` 拦漂移 | — |
 | **软链安装（`install.sh`）** | 把本仓 skill 软链进工程（`.agents/skills/`＋`.claude/skills/`）的机制：**单一真源、改库即生效**；工程声明清单 `.agents/skills.txt`，快照 `.agents/skills.lock`。代价＝工程 clone 不自举（重跑补偿） | 复制入仓（旧法） |
 
 ## 边界与引用
 
 - **正文归属**：判据只在各 skill 的 `SKILL.md`（单一真源）；本仓文档**不复述判据**，只写取值与指针。历史两次踩坑都是复述：全局路由行内联阈值（`MT-145`）、本仓 `## Plan 约束` 内联 plan-persist 的阈值与骨架（2026-09-30 已收拢为指针）。
-- **声明段**：项目 `AGENTS.md` 只写声明段——`## 工作流水线`（agent-pipeline：落点/命令/红线，模板见 `agent-pipeline/TEMPLATE.md`）与 `## 知识库`（llm-wiki：知识库取值，模板见 `llm-wiki/TEMPLATE.md`）、`## 办公文档`（office-docs：基线取值，模板见 `office-docs/TEMPLATE.md`）；机器可读值写 `.llm-wiki.toml`／`.office-docs.toml`。
+- **声明段**：项目 `AGENTS.md` 只写声明段——`## 工作流水线`（agent-pipeline：落点/命令/红线，模板见 `agent-pipeline/TEMPLATE.md`）与 `## 知识库`（llm-wiki：知识库取值，模板见 `llm-wiki/TEMPLATE.md`）、`## 办公文档`（office-docs：基线取值，模板见 `office-docs/TEMPLATE.md`）、`## 数据库`（mysql-cli：连接取值，模板见 `mysql-cli/TEMPLATE.md`）、`## 缓存`（redis-cli：连接取值，模板见 `redis-cli/TEMPLATE.md`）、`## 本地服务`（svc-ops：服务表，模板见 `svc-ops/TEMPLATE.md`）、`## 接口调试`（http-probe：base_url/鉴权，模板见 `http-probe/TEMPLATE.md`）；机器可读值写 `.llm-wiki.toml`／`.office-docs.toml`／`.mysql-cli.toml`／`.redis-cli.toml`／`.svc-ops.toml`／`.http-probe.toml`。
 - **本仓取值**：见根 `AGENTS.md` 的 `## 工作流水线` 段。
 
 ## 采纳

@@ -1,0 +1,593 @@
+#!/usr/bin/env python3
+"""svc-ops — 服务生命周期编排 CLI（`svc-ops` skill）
+
+判据见 ../SKILL.md；项目服务表见项目根 `.svc-ops.toml`（模板见 ../TEMPLATE.md）。
+
+**服务表驱动**的本地进程编排（命令名对齐 systemd）：按 `.svc-ops.toml` 起停后台进程、
+写 PID、等健康、回收端口。**零第三方依赖**；服务清单与取值全部来自项目声明。
+
+子命令：
+  start   [名|all]   后台起服务（写 pidfile、日志、等就绪；已在运行则跳过）
+  stop    [名|all]   停服务（杀进程组 + 回收**监听**端口 + 删 pidfile + 等端口释放）
+  restart [名|all]   先停后起（改配置后重启；等端口真正释放，不与旧实例撞端口）
+  status  [名|all]   进程 / 端口 / 健康 / 归属一览
+  health  [名|all]   仅就绪探测（GET 健康 URL 或 TCP 探端口）
+
+用法：
+  svc-ops [--root DIR] [--json] [--dry-run] <子命令> [名|all]
+
+项目根定位：`--root` → `SVC_OPS_ROOT` → 向上查找 `.svc-ops.toml` → `.git`。
+PID／日志落 `.svc-ops.toml` 的 `[run] pid_dir` / `log_dir`（默认 `.svc-ops/run` / `.svc-ops/logs`）。
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import shlex
+import signal
+import socket
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+from typing import Sequence, TextIO
+
+try:
+    import tomllib
+except ModuleNotFoundError:                      # pragma: no cover
+    tomllib = None
+
+
+USAGE = """用法：
+  svc-ops [--root DIR] [--json] [--dry-run] <子命令> [名|all]
+
+子命令：
+  svc-ops start   [名|all]    后台起服务（写 pidfile、日志、等就绪；已在运行则跳过）
+  svc-ops stop    [名|all]    停服务（杀进程组 + 回收监听端口 + 删 pidfile + 等端口释放）
+  svc-ops restart [名|all]    先停后起（等端口释放，避免与旧实例撞端口）
+  svc-ops status  [名|all]    进程 / 端口 / 健康 / 归属一览
+  svc-ops health  [名|all]    仅就绪探测（GET 健康 URL 或 TCP 探端口）
+
+服务表来自项目根 `.svc-ops.toml` 的 [services.<名>]（port / command / cwd / health / env…）。
+缺省目标 all；`--dry-run` 对 start/stop/restart 只预演。
+"""
+
+DEFAULTS = {"pid_dir": ".svc-ops/run", "log_dir": ".svc-ops/logs",
+            "ready_timeout": 90, "probe_timeout": 2}
+LOG_TAIL = 15
+
+
+class SvcError(RuntimeError):
+    """服务表配置错误或起停失败。"""
+
+
+# ─────────────────────────── 项目定位与配置 ───────────────────────────
+def _find_root(start: Path | None = None) -> Path:
+    cur = (start or Path.cwd()).resolve()
+    for marker in (".svc-ops.toml", ".git"):
+        for d in [cur, *cur.parents]:
+            if (d / marker).exists():
+                return d
+    return cur
+
+
+def _load_toml(root: Path) -> dict:
+    f = root / ".svc-ops.toml"
+    if not f.exists():
+        raise SvcError(f"未找到服务表 {f}（用 --root 钉项目根，或创建 .svc-ops.toml）")
+    if tomllib is None:
+        raise SvcError("需要 Python 3.11+ 才能解析 .svc-ops.toml")
+    return tomllib.loads(f.read_text(encoding="utf-8"))
+
+
+_ENV_LINE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$")
+
+
+def _unquote(value: str) -> str:
+    v = value.strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in "'\"":
+        return v[1:-1]
+    return v
+
+
+def parse_env_text(text: str) -> dict[str, str]:
+    """解析 shell 风格 `.env` 文本：支持 `export`、引号、`#` 注释、空行。不做变量展开。"""
+    out: dict[str, str] = {}
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        m = _ENV_LINE.match(raw)
+        if m:
+            out[m.group(1)] = _unquote(m.group(2))
+    return out
+
+
+class Context:
+    def __init__(self, root: Path, cfg: dict, json_mode: bool, dry_run: bool):
+        self.root = root
+        self.cfg = cfg
+        self.json = json_mode
+        self.dry_run = dry_run
+        self.run_cfg = {**DEFAULTS, **(cfg.get("run") or {})}
+        self.pid_dir = _abs(root, self.run_cfg["pid_dir"])
+        self.log_dir = _abs(root, self.run_cfg["log_dir"])
+        self.ready_timeout = int(self.run_cfg["ready_timeout"])
+        self.probe_timeout = int(self.run_cfg["probe_timeout"])
+
+    def services(self) -> dict[str, dict]:
+        """校验并返回服务表 `{名: {port, command, cwd, health, env, env_file, ready_timeout}}`。"""
+        raw = self.cfg.get("services") or {}
+        if not raw:
+            raise SvcError(".svc-ops.toml 未定义任何 [services.<名>]")
+        table: dict[str, dict] = {}
+        for name, spec in raw.items():
+            if "port" not in spec:
+                raise SvcError(f"服务 {name} 缺 port（用于端口回收与就绪探测）")
+            command = spec.get("command")
+            if not command:
+                raise SvcError(f"服务 {name} 缺 command")
+            if isinstance(command, str):
+                command = shlex.split(command)
+            table[name] = {
+                "name": name,
+                "port": int(spec["port"]),
+                "command": list(command),
+                "cwd": _abs(self.root, spec.get("cwd", ".")),
+                "health": spec.get("health"),
+                "env": {str(k): str(v) for k, v in (spec.get("env") or {}).items()},
+                "env_file": spec.get("env_file"),
+                "ready_timeout": int(spec.get("ready_timeout", self.ready_timeout)),
+            }
+        return table
+
+
+def _abs(root: Path, p: str) -> Path:
+    q = Path(str(p)).expanduser()
+    return q if q.is_absolute() else (root / q)
+
+
+def _targets(pos: Sequence[str], table: dict) -> list[str]:
+    """`[名|all]` → 服务名清单（缺省 all）；非法即报错。"""
+    name = pos[0] if pos else "all"
+    if name == "all":
+        return list(table)
+    if name not in table:
+        raise SvcError(f"服务须为 {'|'.join(table)}|all（收到 {name!r}）")
+    return [name]
+
+
+# ─────────────────────────── 进程 / 端口 / 健康 ───────────────────────────
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _read_pid(pidfile: Path) -> int | None:
+    if not pidfile.exists():
+        return None
+    try:
+        return int(pidfile.read_text().strip())
+    except (ValueError, OSError):
+        return None
+
+
+def _write_pid(pidfile: Path, pid: int) -> None:
+    pidfile.parent.mkdir(parents=True, exist_ok=True)
+    pidfile.write_text(str(pid))
+
+
+def _lsof_pids(port: int, *, listen_only: bool) -> list[int]:
+    """该端口相关 socket 的持有进程（`lsof -ti tcp:<port> [-sTCP:LISTEN]`）。
+
+    `listen_only=False` 是**宽匹配**——连同该端口的**客户端连接**（浏览器页签、连后端的代理）
+    也算在内；回收端口**必须** `listen_only=True`，否则「停一个服务」会顺带 SIGTERM 无关进程。
+    """
+    cmd = ["lsof", "-ti", f"tcp:{port}"]
+    if listen_only:
+        cmd.append("-sTCP:LISTEN")
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    return [int(t) for t in result.stdout.split() if t.isdigit()]
+
+
+def _free_port(port: int) -> None:
+    """兜底清理**监听**该端口的残留进程（SIGTERM；只杀监听者，见 `_lsof_pids`）。"""
+    for pid in _lsof_pids(port, listen_only=True):
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError, ValueError):
+            pass
+
+
+def _listen_pid(port: int) -> int | None:
+    pids = _lsof_pids(port, listen_only=True)
+    return pids[0] if pids else None
+
+
+def _pgid_of(pid: int) -> int | None:
+    """进程组 id（`ps -o pgid=`）；查不到 ⇒ None。
+
+    起服务时 `Popen(start_new_session=True)` 让服务自成进程组（pgid ＝ pidfile 里的 pid），
+    据此区分「我们启动的那一支」（如 `pnpm` 下的 `vite`）与「别人的残留」。
+    """
+    result = subprocess.run(["ps", "-o", "pgid=", "-p", str(pid)],
+                            capture_output=True, text=True)
+    text = result.stdout.strip()
+    return int(text) if text.isdigit() else None
+
+
+def _port_alive(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.5)
+        return sock.connect_ex(("127.0.0.1", port)) == 0
+
+
+def _kill_group(pid: int) -> None:
+    """杀整个进程组（含子进程）；不在组内则退回杀单进程。"""
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+
+
+def _url_ok(url: str, timeout: int = 2) -> bool:
+    """GET 是否 2xx（任何异常都视为不通）。"""
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            return 200 <= resp.status < 300
+    except (urllib.error.URLError, OSError, ValueError):
+        return False
+
+
+def _ready_probe(svc: dict, ctx: Context) -> bool:
+    """就绪判据：有 `health` 用 GET，否则 TCP 探 `port`。"""
+    if svc["health"]:
+        return _url_ok(svc["health"], timeout=ctx.probe_timeout)
+    return _port_alive(svc["port"])
+
+
+def _wait_port_free(port: int, timeout: float = 15.0) -> bool:
+    """等端口不再被监听；本来没人监听则立即返回（不白等）。"""
+    if _listen_pid(port) is None:
+        return True
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        time.sleep(0.3)
+        if _listen_pid(port) is None:
+            return True
+    return False
+
+
+def _which(cmd: str) -> str | None:
+    import shutil
+    return shutil.which(cmd)
+
+
+# ─────────────────────────── 输出 ───────────────────────────
+def _dump_json(obj) -> None:
+    json.dump(obj, sys.stdout, ensure_ascii=False, indent=2)
+    sys.stdout.write("\n")
+
+
+def _disp_width(text: str) -> int:
+    return sum(2 if ord(ch) > 0x2E80 else 1 for ch in text)
+
+
+def render_table(headers: Sequence[str], rows) -> str:
+    body = [[str(c) for c in row] for row in rows]
+    if not body:
+        return "（无）"
+    grid = [list(headers)] + body
+    widths = [max(_disp_width(row[i]) for row in grid) for i in range(len(headers))]
+    lines: list[str] = []
+    for idx, row in enumerate(grid):
+        cells = [c + " " * (widths[i] - _disp_width(c)) for i, c in enumerate(row)]
+        lines.append("  ".join(cells).rstrip())
+        if idx == 0:
+            lines.append("  ".join("-" * w for w in widths))
+    return "\n".join(lines)
+
+
+def _table(ctx: Context, headers, rows, payload) -> int:
+    if ctx.json:
+        _dump_json(payload)
+    else:
+        print(render_table(headers, rows))
+    return 0
+
+
+# ─────────────────────────── 日志 ───────────────────────────
+def _note_log(log_dir: Path, name: str, action: str) -> None:
+    """往服务日志追加一行起／停注记（谁在何时动过服务，事后可查）。"""
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        with open(log_dir / f"{name}.log", "a", encoding="utf-8") as handle:
+            handle.write(f"\n===== svc-ops {action} {name} @ "
+                         f"{time.strftime('%Y-%m-%d %H:%M:%S')} =====\n")
+    except OSError:
+        pass
+
+
+def _open_log(log_dir: Path, name: str, action: str = "start") -> TextIO:
+    """以**追加**方式打开服务日志（先写分隔行）——留证优先于干净（覆盖会抹掉上次失败现场）。"""
+    _note_log(log_dir, name, action)
+    return open(log_dir / f"{name}.log", "a", encoding="utf-8")
+
+
+def _tail(log: Path, lines: int = LOG_TAIL) -> list[str]:
+    try:
+        return log.read_text(encoding="utf-8", errors="replace").splitlines()[-lines:]
+    except OSError:
+        return []
+
+
+def _exit_desc(code: int | None) -> str:
+    """退出状态可读化：负值＝被信号杀死（如 `-15` ⇒ SIGTERM），别只印「退出码 -15」。"""
+    if code is None:
+        return "状态未知"
+    if code < 0:
+        signum = -code
+        label = signal.Signals(signum).name if 0 < signum < signal.NSIG else f"信号 {signum}"
+        return f"被 {label} 杀死（无报错输出属正常）"
+    return f"退出码 {code}"
+
+
+# ─────────────────────────── 环境组装 ───────────────────────────
+def _service_env(svc: dict, ctx: Context) -> dict[str, str]:
+    """服务进程环境 ＝ 本机 `os.environ` ＋ `[run] env_file` ＋ 服务 `env_file` ＋ 服务 `env`。"""
+    merged: dict[str, str] = {}
+    for rel in (ctx.run_cfg.get("env_file"), svc["env_file"]):
+        if not rel:
+            continue
+        p = _abs(ctx.root, rel)
+        if p.is_file():
+            merged.update(parse_env_text(p.read_text(encoding="utf-8")))
+    env = dict(os.environ)
+    env.update(merged)
+    env.update(svc["env"])
+    return env
+
+
+# ─────────────────────────── 子命令 ───────────────────────────
+def _pidfile(ctx: Context, name: str) -> Path:
+    return ctx.pid_dir / f"{name}.pid"
+
+
+def cmd_start(args, ctx: Context) -> int:
+    table = ctx.services()
+    names = _targets(args, table)
+    if ctx.dry_run:
+        for name in names:
+            print(f"（dry-run）将启动 {name}：{' '.join(table[name]['command'])} "
+                  f"(cwd={table[name]['cwd']}) port={table[name]['port']}")
+        return 0
+
+    started: list[tuple[str, subprocess.Popen]] = []
+    for name in names:
+        svc = table[name]
+        pf = _pidfile(ctx, name)
+        pid = _read_pid(pf)
+        if pid and _alive(pid):
+            print(f"{name} 已在运行（pid {pid}）")
+            continue
+        _free_port(svc["port"])
+        log = _open_log(ctx.log_dir, name)
+        env = _service_env(svc, ctx)
+        try:
+            child = subprocess.Popen(
+                svc["command"], cwd=str(svc["cwd"]), env=env,
+                stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
+        except FileNotFoundError as exc:
+            raise SvcError(f"{name} 启动失败：找不到命令 {exc}") from None
+        _write_pid(pf, child.pid)
+        started.append((name, child))
+
+    failed: list[str] = []
+    for name, child in started:
+        svc = table[name]
+        if not _wait_ready(svc, child, ctx):
+            failed.append(name)
+
+    print(f"已启动：{'、'.join(n for n, _ in started) if started else '（无新增）'}"
+          f"｜日志目录 {ctx.log_dir}")
+    if failed:
+        return _fail(f"{'、'.join(failed)} 未能就绪（进程已退出或超时）"
+                     f"——完整日志见 {ctx.log_dir}/")
+    return 0
+
+
+def _wait_ready(svc: dict, child: subprocess.Popen, ctx: Context) -> bool:
+    """等一个服务就绪：子进程已退出 ⇒ 立即判失败（带回日志尾）；否则最多等 ready_timeout 秒。"""
+    log = ctx.log_dir / f"{svc['name']}.log"
+    for _ in range(svc["ready_timeout"]):
+        if child.poll() is not None:
+            print(f"✗ {svc['name']} 进程已退出（{_exit_desc(child.returncode)}）；"
+                  f"日志末尾 {LOG_TAIL} 行：", file=sys.stderr)
+            for line in _tail(log):
+                print(f"  {line}", file=sys.stderr)
+            print(f"  完整日志：{log}", file=sys.stderr)
+            return False
+        if _ready_probe(svc, ctx):
+            return True
+        time.sleep(1)
+    print(f"⚠️ {svc['name']} 未在 {svc['ready_timeout']}s 内就绪（进程仍在运行）"
+          f"——查看日志 {log}", file=sys.stderr)
+    return False
+
+
+def cmd_stop(args, ctx: Context) -> int:
+    table = ctx.services()
+    names = _targets(args, table)
+    if ctx.dry_run:
+        for name in names:
+            print(f"（dry-run）将停止 {name}（端口 {table[name]['port']}）")
+        return 0
+    stopped = _stop_local(ctx, table, names)
+    return _ok(ctx, f"已停止：{'、'.join(stopped) if stopped else '（未在运行）'}",
+               data={"stopped": stopped})
+
+
+def _stop_local(ctx: Context, table: dict, names: list[str]) -> list[str]:
+    """停本地服务（杀进程组 + 回收端口），并**等端口真正释放**后返回停掉的服务名。"""
+    stopped: list[str] = []
+    for name in names:
+        svc = table[name]
+        pf = _pidfile(ctx, name)
+        pid = _read_pid(pf)
+        if pid and _alive(pid):
+            _note_log(ctx.log_dir, name, "stop")   # 先留痕：谁在何时停的
+            _kill_group(pid)
+            stopped.append(name)
+        if pf.exists():
+            pf.unlink()
+        _free_port(svc["port"])
+    for name in names:
+        port = table[name]["port"]
+        if not _wait_port_free(port):
+            print(f"⚠️ {name} 端口 {port} 仍在被监听（15s 未释放），继续",
+                  file=sys.stderr)
+    return stopped
+
+
+def cmd_restart(args, ctx: Context) -> int:
+    table = ctx.services()
+    names = _targets(args, table)
+    if ctx.dry_run:
+        print(f"（dry-run）将重启：{'、'.join(names)}（先停后起）")
+        return 0
+    stopped = _stop_local(ctx, table, names)
+    print(f"已停止：{'、'.join(stopped) if stopped else '（未在运行）'}")
+    return cmd_start(names, ctx)
+
+
+def cmd_status(args, ctx: Context) -> int:
+    table = ctx.services()
+    names = _targets(args, table)
+    entries: list[dict] = []
+    for name in names:
+        svc = table[name]
+        pid = _read_pid(_pidfile(ctx, name))
+        owner = _listen_pid(svc["port"])
+        running = bool(pid and _alive(pid))
+        healthy = _ready_probe(svc, ctx)
+        # 端口监听者属我们启动的那一支（同进程组）——pnpm 退出、vite 仍活时靠它认出来
+        ours = bool(owner and pid and _pgid_of(owner) == pid)
+        entries.append({"service": name, "port": svc["port"], "running": running,
+                        "healthy": healthy, "owner": owner, "ours": ours, "pid": pid})
+    rows = []
+    for e in entries:
+        state = "运行中" if e["running"] else ("端口占用" if e["owner"] else "未运行")
+        if e["healthy"]:
+            health = "健康"
+        elif e["running"] or e["ours"]:
+            health = "不健康"
+        elif e["owner"]:
+            health = "未知"
+        else:
+            health = "-"
+        shown = e["pid"] if e["running"] else e["owner"]
+        rows.append([e["service"], e["port"], state, health, shown or "-"])
+    return _table(ctx, ["服务", "端口", "进程", "健康", "pid"], rows, entries)
+
+
+def cmd_health(args, ctx: Context) -> int:
+    table = ctx.services()
+    names = _targets(args, table)
+    entries = []
+    for name in names:
+        svc = table[name]
+        ok = _ready_probe(svc, ctx)
+        target = svc["health"] or f"tcp:{svc['port']}"
+        entries.append({"service": name, "healthy": ok, "target": target})
+    rows = [[e["service"], "健康" if e["healthy"] else "不通", e["target"]] for e in entries]
+    if ctx.json:
+        _dump_json(entries)
+    else:
+        print(render_table(["服务", "健康", "探针"], rows))
+    return 0 if all(e["healthy"] for e in entries) else 1
+
+
+# ─────────────────────────── 分派与入口 ───────────────────────────
+def _ok(ctx: Context, message: str, *, data=None) -> int:
+    if ctx.json:
+        _dump_json(data if data is not None else {"ok": True, "message": message})
+    else:
+        print(message)
+    return 0
+
+
+def _fail(message: str) -> int:
+    print(f"错误：{message}", file=sys.stderr)
+    return 1
+
+
+def _split_globals(argv: list[str]):
+    root = None
+    json_mode = dry_run = False
+    out: list[str] = []
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--json":
+            json_mode = True
+        elif a == "--dry-run":
+            dry_run = True
+        elif a == "--root" and i + 1 < len(argv):
+            root = argv[i + 1]; i += 1
+        elif a.startswith("--root="):
+            root = a.split("=", 1)[1]
+        else:
+            out.append(a)
+        i += 1
+    return root, json_mode, dry_run, out
+
+
+_COMMANDS = {"start": cmd_start, "stop": cmd_stop, "restart": cmd_restart,
+             "status": cmd_status, "health": cmd_health,
+             "up": cmd_start, "down": cmd_stop}   # up/down 兼容别名
+
+
+def dispatch(args: list[str], ctx: Context) -> int:
+    cmd, rest = args[0], args[1:]
+    fn = _COMMANDS.get(cmd)
+    if fn is None:
+        print(f"未知命令 {cmd!r}\n{USAGE}", file=sys.stderr)
+        return 2
+    return fn(rest, ctx)
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    root_arg, json_mode, dry_run, rest = _split_globals(argv)
+
+    if root_arg:
+        root = Path(root_arg).expanduser().resolve()
+    else:
+        env = os.environ.get("SVC_OPS_ROOT")
+        root = Path(env).expanduser().resolve() if env else _find_root()
+
+    if not rest or rest[0] in ("-h", "--help"):
+        print(USAGE)
+        return 0
+    try:
+        cfg = _load_toml(root)
+        ctx = Context(root, cfg, json_mode, dry_run)
+        return dispatch(rest, ctx)
+    except SvcError as exc:
+        print(f"错误：{exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

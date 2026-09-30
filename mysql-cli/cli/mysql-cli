@@ -1,0 +1,823 @@
+#!/usr/bin/env python3
+"""mysql-cli — MySQL 访问与管理 CLI（`mysql-cli` skill）
+
+判据见 ../SKILL.md；项目配置见项目根 `.mysql-cli.toml`（模板见 ../TEMPLATE.md）。
+
+复用系统 `mysql` / `mysqldump` CLI——**零第三方依赖**；口令只经子进程 `env=` 注入
+`MYSQL_PWD`（**不落 shell history、不进进程列表**）。子命令：
+
+  ping                         连通性探测（返回服务器版本）
+  query  <SQL>...              执行单条 SQL（默认 TSV 原样输出）
+  script <文件.sql>            执行整段脚本（可含多条语句 / DDL）
+  tables                       列出目标库的表
+  sample <表> [N]              采样 N 行（默认 10）
+  backup --tables a,b --out F  用 mysqldump 导出表
+  import <sql目录> <库名>      批量导入（由 INSERT 推断建表 DDL；默认预演）
+  migrate-check                Flyway 迁移 checksum 自检（本地复算 ↔ 库记账）
+
+用法：
+  mysql-cli [全局] <子命令> [参数]
+
+全局：`--root DIR`（钉项目根）· `--env-file F`（可多次，加载 shell 风格 .env）·
+`--host/--port/--user/--password/--timeout`（覆盖连接）· `--db <库>`（目标库）·
+`--json`（机器可读）· `--dry-run`（写操作只预演）。
+
+项目根定位：`--root` → `MYSQL_CLI_ROOT` → 向上查找 `.mysql-cli.toml` → `.git`。
+连接取值优先级（高→低）：命令行 → `--env-file`/进程环境 → `.mysql-cli.toml [connection]` → 内置默认。
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import subprocess
+import sys
+import zlib
+from pathlib import Path
+from typing import NamedTuple, Sequence
+
+try:
+    import tomllib
+except ModuleNotFoundError:                      # pragma: no cover
+    tomllib = None
+
+
+USAGE = """用法：
+  mysql-cli [--root DIR] [--env-file F]... [--host H] [--port P] [--user U] [--password P]
+            [--db DB] [--timeout N] [--json] [--dry-run] <子命令> [参数]
+
+子命令：
+  mysql-cli ping [--timeout N]                               连通性探测（返回服务器版本）
+  mysql-cli query  <SQL> [--db DB] [--no-header] [--json]     执行单条 SQL（默认 TSV 原样）
+  mysql-cli script <文件.sql> [--db DB] [--dry-run]           执行整段脚本（多条语句 / DDL）
+  mysql-cli tables [--db DB] [--json]                         列出目标库的表
+  mysql-cli sample <表> [N] [--db DB] [--json]                采样 N 行（默认 10）
+  mysql-cli backup --db DB --tables a,b --out FILE [--timeout N]   用 mysqldump 导出表
+  mysql-cli import <sql目录> <库名> [--drop] [--apply]        批量导入（INSERT→DDL 推断；默认预演）
+  mysql-cli migrate-check [--dir DIR] [--db DB] [--json]      Flyway checksum 自检（本地 ↔ 库记账）
+
+连接取值优先级（高→低）：命令行 → --env-file/进程环境 → .mysql-cli.toml [connection] → 内置默认。
+口令只经 MYSQL_PWD 注入子进程；写类命令（import / script）受 [write_gate] allow_hosts 约束（配了才生效）。
+"""
+
+#: 内置默认连接（`.mysql-cli.toml` / 命令行 / 环境变量未给时生效）
+DEFAULTS = {"host": "127.0.0.1", "port": "3306", "user": "root",
+            "password": "", "timeout": "30", "env_file": ""}
+
+#: 环境变量名约定（可被 `.mysql-cli.toml` 的 `<key>_var` 覆盖）
+ENV_VARS = {"host": "MYSQL_HOST", "port": "MYSQL_PORT",
+            "user": "MYSQL_USER", "password": "MYSQL_PASSWORD"}
+
+#: 标识符白名单（拼入 SQL 前校验；沿用 tenant「先校验再拼串」口径）
+_IDENT = re.compile(r"^[A-Za-z0-9_]+$")
+
+#: 运行期配置（`main()` 填充）
+CFG: dict = {"root": None}
+
+
+# ─────────────────────────── 运行时上下文 ───────────────────────────
+class MySQLError(RuntimeError):
+    """mysql / mysqldump 调用失败或参数非法。"""
+
+
+class Conn(NamedTuple):
+    """一条 MySQL 连接的四个字段（host/port/user/password）——免得到处传裸四元组。"""
+    host: str
+    port: str
+    user: str
+    password: str
+
+
+def _find_root(start: Path | None = None) -> Path:
+    """向上找项目根：`.mysql-cli.toml` → `.git` → 起点。"""
+    cur = (start or Path.cwd()).resolve()
+    for marker in (".mysql-cli.toml", ".git"):
+        for d in [cur, *cur.parents]:
+            if (d / marker).exists():
+                return d
+    return cur
+
+
+def _load_toml(root: Path) -> dict:
+    f = root / ".mysql-cli.toml"
+    if not f.exists():
+        return {}
+    if tomllib is None:
+        raise MySQLError("需要 Python 3.11+ 才能解析 .mysql-cli.toml")
+    return tomllib.loads(f.read_text(encoding="utf-8"))
+
+
+_ENV_LINE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$")
+
+
+def _unquote(value: str) -> str:
+    """剥离成对引号（`.env` 里 BCrypt hash 常用引号包，防特殊字符被解析）。"""
+    v = value.strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in "'\"":
+        return v[1:-1]
+    return v
+
+
+def parse_env_text(text: str) -> dict[str, str]:
+    """解析 shell 风格 `.env` 文本：支持 `export`、单/双引号、`#` 注释、空行。不做变量展开。"""
+    out: dict[str, str] = {}
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        m = _ENV_LINE.match(raw)
+        if m:
+            out[m.group(1)] = _unquote(m.group(2))
+    return out
+
+
+def _from_env(env: dict[str, str], names: Sequence[str]) -> str | None:
+    for name in names:
+        if name and env.get(name):
+            return env[name]
+    return None
+
+
+class Context:
+    """执行上下文：项目根、配置、连接取值来源、全局标志。"""
+
+    def __init__(self, root: Path, cfg: dict, env_files: list[str],
+                 conn_opts: dict, json_mode: bool, dry_run: bool):
+        self.root = root
+        self.cfg = cfg
+        self.env_files = env_files
+        self.conn_opts = conn_opts
+        self.json = json_mode
+        self.dry_run = dry_run
+
+    def _env(self) -> dict[str, str]:
+        """合并取值环：`.mysql-cli.toml` 的 `env_file` → `--env-file`（后者覆盖）→ 进程环境（最高）。"""
+        conn_cfg = self.cfg.get("connection") or {}
+        merged: dict[str, str] = {}
+        names: list[str] = []
+        if conn_cfg.get("env_file"):
+            names.append(str(conn_cfg["env_file"]))
+        names += self.env_files
+        for name in names:
+            p = Path(name).expanduser()
+            if not p.is_absolute():
+                p = self.root / p
+            if p.is_file():
+                merged.update(parse_env_text(p.read_text(encoding="utf-8")))
+        merged.update(os.environ)
+        return merged
+
+    def connection(self) -> Conn:
+        """按「命令行 → 环境 → `.toml` → 默认」解析连接。"""
+        conn_cfg = self.cfg.get("connection") or {}
+        env = self._env()
+
+        def pick(key: str, default: str) -> str:
+            cli = self.conn_opts.get(key)
+            if cli is not None:
+                return cli
+            var = conn_cfg.get(f"{key}_var")
+            names = [var] if isinstance(var, str) else list(var or [])
+            general = ENV_VARS.get(key)
+            if general and general not in names:
+                names.append(general)
+            found = _from_env(env, names)
+            if found is not None:
+                return found
+            toml_val = conn_cfg.get(key)
+            if toml_val not in (None, ""):
+                return str(toml_val)
+            return default
+
+        return Conn(pick("host", DEFAULTS["host"]), pick("port", DEFAULTS["port"]),
+                    pick("user", DEFAULTS["user"]), pick("password", DEFAULTS["password"]))
+
+    def timeout(self, override: int | str | None = None) -> int:
+        if override is not None:
+            return int(override)
+        conn_cfg = self.cfg.get("connection") or {}
+        return int(self.conn_opts.get("timeout") or conn_cfg.get("timeout") or DEFAULTS["timeout"])
+
+    def db(self) -> str | None:
+        """目标库：命令行 `--db` → `.toml [connection] db`。"""
+        return self.conn_opts.get("db") or (self.cfg.get("connection") or {}).get("db") or None
+
+
+def _write_gate(ctx: Context, host: str) -> str | None:
+    """写闸：配了 `[write_gate] allow_hosts` 才生效；host 不在白名单即拒（用于 import / script）。"""
+    allowed = (ctx.cfg.get("write_gate") or {}).get("allow_hosts") or []
+    if allowed and host not in allowed:
+        return (f"拒绝写入 host {host}：不在 [write_gate] allow_hosts 白名单"
+                f"（{', '.join(map(str, allowed))}）")
+    return None
+
+
+# ─────────────────────────── mysql / mysqldump 封装 ───────────────────────────
+def _env_with_password(password: str) -> dict[str, str]:
+    env = dict(os.environ)
+    env["MYSQL_PWD"] = password
+    return env
+
+
+def _conn_args(conn: Conn) -> list[str]:
+    return ["-h", str(conn.host), "-P", str(conn.port), "-u", conn.user]
+
+
+def _run(cmd: list[str], password: str, *, timeout: int,
+         stdin: str | None = None) -> subprocess.CompletedProcess:
+    """跑 mysql/mysqldump；超时与不可达统一转成 `MySQLError`（不给用户看裸堆栈）。"""
+    try:
+        return subprocess.run(cmd, input=stdin, capture_output=True, text=True,
+                              env=_env_with_password(password), timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise MySQLError(f"连接或执行超时（{timeout}s）——目标可能不可达") from None
+
+
+def run_sql(conn: Conn, sql: str, *, db: str | None = None, timeout: int = 30,
+            skip_header: bool = False) -> str:
+    """执行单条 SQL，返回 stdout（`--batch` TSV）；`skip_header` 加 `-N` 去掉列名行。"""
+    cmd = ["mysql", *_conn_args(conn), "--batch", "--raw"]
+    if skip_header:
+        cmd.append("-N")
+    cmd += ["-e", sql]
+    if db:
+        cmd.append(db)
+    result = _run(cmd, conn.password, timeout=timeout)
+    if result.returncode != 0:
+        raise MySQLError(result.stderr.strip() or f"mysql 退出码 {result.returncode}")
+    return result.stdout
+
+
+def run_script(conn: Conn, script: str, *, db: str | None = None,
+               timeout: int = 600) -> None:
+    """整段 SQL 脚本（可含多条语句 / DDL），等价 `mysql < file`。"""
+    cmd = ["mysql", *_conn_args(conn)]
+    if db:
+        cmd.append(db)
+    result = _run(cmd, conn.password, timeout=timeout, stdin=script)
+    if result.returncode != 0:
+        first = next((ln for ln in result.stderr.splitlines() if "Warning" not in ln), "")
+        raise MySQLError(first.strip() or f"mysql 退出码 {result.returncode}")
+
+
+def dump(conn: Conn, db: str, tables: Sequence[str], out_path: str,
+         *, timeout: int = 300) -> None:
+    """导出表到 SQL 文件（`mysqldump`）。"""
+    cmd = ["mysqldump", *_conn_args(conn), "--single-transaction", "--no-tablespaces",
+           db, *tables]
+    try:
+        with open(out_path, "w", encoding="utf-8") as fh:
+            result = subprocess.run(cmd, stdout=fh, stderr=subprocess.PIPE, text=True,
+                                    env=_env_with_password(conn.password), timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise MySQLError(f"导出超时（{timeout}s）") from None
+    if result.returncode != 0:
+        raise MySQLError((result.stderr or "").strip() or f"mysqldump 退出码 {result.returncode}")
+
+
+def sql_ping(conn: Conn, *, timeout: int = 8) -> str:
+    """连通性探测：返回服务器版本字符串（去列名行）。"""
+    return run_sql(conn, "SELECT VERSION()", timeout=timeout, skip_header=True).strip()
+
+
+# ─────────────────────────── 输出渲染（内联，避免跨 skill 依赖） ───────────────────────────
+def dump_json(obj) -> None:
+    json.dump(obj, sys.stdout, ensure_ascii=False, indent=2)
+    sys.stdout.write("\n")
+
+
+def _disp_width(text: str) -> int:
+    """显示宽度：CJK 及全角字符按 2 列计，避免中文表格错位。"""
+    return sum(2 if ord(ch) > 0x2E80 else 1 for ch in text)
+
+
+def render_table(headers: Sequence[str], rows) -> str:
+    body = [[str(c) for c in row] for row in rows]
+    if not body:
+        return "（无）"
+    grid = [list(headers)] + body
+    widths = [max(_disp_width(row[i]) for row in grid) for i in range(len(headers))]
+    lines: list[str] = []
+    for idx, row in enumerate(grid):
+        cells = [c + " " * (widths[i] - _disp_width(c)) for i, c in enumerate(row)]
+        lines.append("  ".join(cells).rstrip())
+        if idx == 0:
+            lines.append("  ".join("-" * w for w in widths))
+    return "\n".join(lines)
+
+
+def rows_to_table(rows: str) -> tuple[list[str], list[list[str]]]:
+    """`mysql -e` 的 TSV 输出（首行表头）→ (表头, 数据行)；空输出 → ([], [])。"""
+    lines = [ln for ln in rows.splitlines() if ln.strip()]
+    if not lines:
+        return [], []
+    return lines[0].split("\t"), [ln.split("\t") for ln in lines[1:]]
+
+
+# ─────────────────────────── 参数解析 ───────────────────────────
+def _parse(args: Sequence[str], bools: tuple[str, ...] = ("dry-run",)):
+    """拆成 (位置参数, 选项字典)。位置参数在前，选项 `--key value` / `--key=value` 在后。"""
+    bools = set(bools)
+    pos: list[str] = []
+    opts: dict = {}
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg.startswith("--"):
+            name = arg[2:]
+            if "=" in name:
+                key, value = name.split("=", 1)
+                opts[key] = value
+                i += 1
+            elif name in bools:
+                opts[name] = True
+                i += 1
+            elif i + 1 < len(args) and not args[i + 1].startswith("--"):
+                opts[name] = args[i + 1]
+                i += 2
+            else:
+                opts[name] = True
+                i += 1
+        else:
+            pos.append(arg)
+            i += 1
+    return pos, opts
+
+
+_CONN_KEYS = ("host", "port", "user", "password", "timeout", "db")
+
+
+def _split_globals(argv: list[str]):
+    """抽走全局标志（任意位置）：`--root`/`--env-file`/连接参数/`--json`/`--dry-run`。
+
+    返回 `(root, env_files, json_mode, dry_run, conn_opts, 其余)`。
+    """
+    root = None
+    env_files: list[str] = []
+    json_mode = dry_run = False
+    conn_opts: dict = {}
+    out: list[str] = []
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--json":
+            json_mode = True
+        elif a == "--dry-run":
+            dry_run = True
+        elif a == "--root" and i + 1 < len(argv):
+            root = argv[i + 1]; i += 1
+        elif a.startswith("--root="):
+            root = a.split("=", 1)[1]
+        elif a == "--env-file" and i + 1 < len(argv):
+            env_files.append(argv[i + 1]); i += 1
+        elif a.startswith("--env-file="):
+            env_files.append(a.split("=", 1)[1])
+        elif a[2:] in _CONN_KEYS and i + 1 < len(argv) and a.startswith("--"):
+            conn_opts[a[2:]] = argv[i + 1]; i += 1
+        elif a.startswith("--") and "=" in a and a[2:].split("=", 1)[0] in _CONN_KEYS:
+            k, v = a[2:].split("=", 1); conn_opts[k] = v
+        else:
+            out.append(a)
+        i += 1
+    return root, env_files, json_mode, dry_run, conn_opts, out
+
+
+# ─────────────────────────── 子命令 ───────────────────────────
+def cmd_ping(args, ctx: Context) -> int:
+    _pos, opts = _parse(args)
+    conn = ctx.connection()
+    version = sql_ping(conn, timeout=ctx.timeout(opts.get("timeout")))
+    if ctx.json:
+        dump_json({"ok": True, "host": conn.host, "port": conn.port, "version": version})
+    else:
+        print(f"{conn.host}:{conn.port} · MySQL {version}")
+    return 0
+
+
+def cmd_query(args, ctx: Context) -> int:
+    pos, opts = _parse(args)
+    if not pos:
+        raise MySQLError("用法：mysql-cli query <SQL> [--db DB] [--no-header]")
+    conn = ctx.connection()
+    out = run_sql(conn, " ".join(pos), db=ctx.db(), timeout=ctx.timeout(),
+                  skip_header=bool(opts.get("no-header")))
+    if ctx.json:
+        header, body = rows_to_table(out)
+        dump_json({"columns": header, "rows": body})
+    else:
+        sys.stdout.write(out)
+    return 0
+
+
+def cmd_script(args, ctx: Context) -> int:
+    pos, _opts = _parse(args)
+    if not pos:
+        raise MySQLError("用法：mysql-cli script <文件.sql> [--db DB]")
+    path = Path(pos[0])
+    if not path.is_file():
+        raise MySQLError(f"文件不存在：{pos[0]}")
+    text = path.read_text(encoding="utf-8", errors="replace")
+    conn = ctx.connection()
+    db = ctx.db()
+    if ctx.dry_run:
+        print(f"（dry-run）将执行 {path}（{len(text.splitlines())} 行）于 "
+              f"{conn.host}:{conn.port}" + (f"/{db}" if db else ""))
+        return 0
+    gate = _write_gate(ctx, conn.host)
+    if gate:
+        raise MySQLError(gate)
+    run_script(conn, text, db=db, timeout=ctx.timeout(600))
+    print(f"已执行脚本：{path}")
+    return 0
+
+
+def cmd_tables(args, ctx: Context) -> int:
+    _pos, _opts = _parse(args)
+    db = ctx.db()
+    if not db:
+        raise MySQLError("须用 --db 指定目标库（或在 .mysql-cli.toml [connection] db 配默认库）")
+    conn = ctx.connection()
+    out = run_sql(conn, "SHOW FULL TABLES", db=db, timeout=ctx.timeout(), skip_header=True)
+    names = [ln.split("\t")[0] for ln in out.splitlines() if ln.strip()]
+    if ctx.json:
+        dump_json(names)
+    else:
+        print(render_table(["表名"], [[n] for n in names]))
+    return 0
+
+
+def cmd_sample(args, ctx: Context) -> int:
+    pos, _opts = _parse(args)
+    if not pos:
+        raise MySQLError("用法：mysql-cli sample <表> [N] [--db DB]")
+    table = pos[0]
+    if not _IDENT.match(table):
+        raise MySQLError(f"表名只允许字母/数字/下划线：{table}")
+    limit = int(pos[1]) if len(pos) > 1 and pos[1].isdigit() else 10
+    db = ctx.db()
+    if not db:
+        raise MySQLError("须用 --db 指定目标库")
+    conn = ctx.connection()
+    out = run_sql(conn, f"SELECT * FROM `{table}` LIMIT {limit}", db=db, timeout=ctx.timeout())
+    header, body = rows_to_table(out)
+    if ctx.json:
+        dump_json([dict(zip(header, r)) for r in body])
+    else:
+        print(render_table(header, body) if header else "（无）")
+    return 0
+
+
+def cmd_backup(args, ctx: Context) -> int:
+    _pos, opts = _parse(args)
+    db = ctx.db()
+    if not db:
+        raise MySQLError("须用 --db 指定库")
+    tables = [t for t in (opts.get("tables") or "").split(",") if t]
+    out_path = opts.get("out")
+    if not out_path:
+        raise MySQLError("须用 --out 指定输出文件")
+    conn = ctx.connection()
+    dump(conn, db, tables, out_path, timeout=ctx.timeout(300))
+    tail = f"/{','.join(tables)}" if tables else "（整库）"
+    print(f"已导出 {db}{tail} → {out_path}")
+    return 0
+
+
+def cmd_import(args, ctx: Context) -> int:
+    pos, opts = _parse(args, ("dry-run", "drop", "apply"))
+    if len(pos) < 2:
+        raise MySQLError("用法：mysql-cli import <sql目录> <库名> [--drop] [--apply]")
+    sql_dir, db = pos[0], pos[1]
+    if not Path(sql_dir).is_dir():
+        raise MySQLError(f"目录不存在：{sql_dir}")
+    if not _IDENT.match(db):
+        raise MySQLError(f"库名只允许字母/数字/下划线：{db}")
+    files = sorted(p for p in Path(sql_dir).glob("*.sql")
+                   if p.is_file() and p.stat().st_size > 0)
+    if not files:
+        raise MySQLError(f"目录内无 .sql 文件：{sql_dir}")
+
+    ddl = build_ddl(files, db, drop=bool(opts.get("drop")))
+    # 批量写：默认**只预演**，须显式 `--apply` 才落库
+    if not opts.get("apply") or ctx.dry_run or opts.get("dry-run"):
+        why = "dry-run" if (ctx.dry_run or opts.get("dry-run")) else "未加 --apply"
+        print(f"（{why}，仅预演）将建库 {db} 并导入 {len(files)} 个文件；生成的 DDL：")
+        print(ddl)
+        return 0
+
+    conn = ctx.connection()
+    gate = _write_gate(ctx, conn.host)
+    if gate:
+        raise MySQLError(gate)
+    try:
+        run_sql(conn, "SELECT 1", timeout=ctx.timeout())
+        run_sql(conn, f"CREATE DATABASE IF NOT EXISTS `{db}` "
+                      "DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;")
+        run_script(conn, ddl)
+    except MySQLError as exc:
+        raise MySQLError(f"建库/建表失败：{exc}")
+
+    ok = fail = 0
+    results: list[dict] = []
+    for path in files:
+        try:
+            run_script(conn, path.read_text(encoding="utf-8", errors="replace"),
+                       db=db, timeout=ctx.timeout(600))
+            ok += 1
+            results.append({"file": path.name, "status": "ok"})
+        except MySQLError as exc:
+            fail += 1
+            results.append({"file": path.name, "status": "FAIL", "error": str(exc)[:200]})
+    if ctx.json:
+        dump_json(results)
+    else:
+        print(render_table(["文件", "结果", "错误"],
+                           [[r["file"], r["status"], r.get("error", "")] for r in results]))
+    print(f"完成：{db} · 共 {len(files)} · ok={ok} fail={fail}")
+    return 1 if fail else 0
+
+
+# ── import 的 DDL 推断（照搬 tenant 原脚本口径） ──
+_NUMERIC = re.compile(r"(AMOUNT|TOTAL|PRICE|QTY|SORT|SIZE|YEAR|RATE|MAX_)$", re.I)
+_SHORT = re.compile(r"(ID|CODE|KEY|STATUS|FLAG|VERSION|STATE|TYPE|NO|PHONE|EMAIL|URL|PATH|BANK)$", re.I)
+_LONG = re.compile(r"(NAME|DESC|REMARK|REASON|MSG|ADDRESS)$", re.I)
+_HEAD_BYTES = 400_000
+_SAMPLE_LIMIT = 5
+
+
+def build_ddl(files: list[Path], db: str, *, drop: bool) -> str:
+    """由各 `.sql` 的 INSERT 语句推断建表 DDL，拼成整段脚本。"""
+    statements: list[str] = []
+    for path in files:
+        parsed = _parse_inserts(path)
+        if parsed is None:
+            print(f"[warn] 解析失败跳过：{path.name}", file=sys.stderr)
+            continue
+        table, columns, samples = parsed
+        cols = [f"  `{c}` {_infer(c, samples.get(c, []))} DEFAULT NULL" for c in columns]
+        create = "CREATE TABLE IF NOT EXISTS" if not drop else "CREATE TABLE"
+        stmt = f"{create} `{table}` (\n" + ",\n".join(cols) + "\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;"
+        if drop:
+            stmt = f"DROP TABLE IF EXISTS `{table}`;\n" + stmt
+        statements.append(stmt)
+    return f"USE `{db}`;\n" + "\n".join(statements) + "\n"
+
+
+def _split_values(text: str) -> list[str]:
+    """按顶层逗号切分值列表（尊重单引号与反斜杠转义）。"""
+    out: list[str] = []
+    buf: list[str] = []
+    in_str = False
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if in_str:
+            buf.append(ch)
+            if ch == "\\" and i + 1 < len(text):
+                buf.append(text[i + 1])
+                i += 2
+                continue
+            if ch == "'":
+                in_str = False
+        else:
+            if ch == "'":
+                in_str = True
+                buf.append(ch)
+            elif ch == ",":
+                out.append("".join(buf))
+                buf = []
+            else:
+                buf.append(ch)
+        i += 1
+    out.append("".join(buf))
+    return out
+
+
+def _parse_inserts(path: Path) -> tuple[str, list[str], dict[str, list[str]]] | None:
+    head = path.read_text(encoding="utf-8", errors="replace")[:_HEAD_BYTES]
+    match = re.search(r"insert into `(\w+)`\(([^)]*)\)", head, re.I)
+    if not match:
+        return None
+    table = match.group(1)
+    columns = re.findall(r"`([^`]+)`", match.group(2))
+    samples: dict[str, list[str]] = {c: [] for c in columns}
+    for row in re.finditer(r"values\s*\((.*?)\)\s*[,;]", head[:300_000], re.S | re.I):
+        for col, value in zip(columns, _split_values(row.group(1))):
+            if value.lower() == "null":
+                continue
+            text = value.strip("'")
+            if text and len(samples[col]) < _SAMPLE_LIMIT:
+                samples[col].append(text)
+    return table, columns, samples
+
+
+def _infer(column: str, samples: list[str]) -> str:
+    """按样本值与前缀/后缀约定推断列类型（口径与原脚本一致）。"""
+    if not samples:
+        return "TEXT"
+    probe = samples[:3]
+    if all(re.match(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}", s) for s in probe):
+        return "DATETIME"
+    if all(re.match(r"^\d{4}-\d{2}-\d{2}$", s) for s in probe):
+        return "DATE"
+    if _NUMERIC.search(column):
+        if all(re.match(r"^-?\d+\.\d+$", s) for s in probe):
+            return "DECIMAL(20,4)"
+        if all(re.match(r"^-?\d+$", s) for s in probe):
+            return "BIGINT"
+        return "VARCHAR(255)"
+    if _SHORT.search(column):
+        return "VARCHAR(255)"
+    if _LONG.search(column):
+        return "TEXT"
+    if all(re.match(r"^-?\d+$", s) for s in probe):
+        return "VARCHAR(255)"
+    if all(re.match(r"^-?\d+\.\d+$", s) for s in probe):
+        return "DECIMAL(20,4)"
+    return "TEXT"
+
+
+# ── migrate-check：Flyway checksum 自检 ──
+_MIGRATION = re.compile(r"^V(\d+)__(.+)\.sql$")
+_LINE_SPLIT = re.compile(r"\r\n|\r|\n")
+_HISTORY_SQL = ("SELECT version, script, checksum, success "
+                "FROM flyway_schema_history ORDER BY installed_rank")
+_GREEN = ("一致", "记账 NULL（不校验）")
+
+
+def flyway_checksum(text: str) -> int:
+    """复算单个迁移文件的 checksum（signed int32，与 Flyway 12 一致）。
+
+    逐行 `rstrip()`（只去行尾）后按 UTF-8 累积 CRC32；注释与空行均计入。
+    行分隔按 Java `readLine()`（`\\r\\n` / `\\n` / `\\r`），不用 `str.splitlines()`。
+    """
+    crc = 0
+    for line in _LINE_SPLIT.split(text):
+        crc = zlib.crc32(line.rstrip().encode("utf-8"), crc)
+    return crc - 2**32 if crc >= 2**31 else crc
+
+
+def read_migrations(directory: Path) -> dict[int, tuple[str, int]]:
+    """扫目录下 `V*.sql` → `{序号: (文件名, checksum)}`（按版本号排序）；不符命名约定跳过。"""
+    found: dict[int, tuple[str, int]] = {}
+    for path in sorted(directory.glob("V*.sql")):
+        matched = _MIGRATION.match(path.name)
+        if matched is None:
+            continue
+        found[int(matched.group(1))] = (path.name, flyway_checksum(path.read_text(encoding="utf-8")))
+    return dict(sorted(found.items()))
+
+
+def _migration_dirs(ctx: Context, opts: dict) -> dict[str, Path]:
+    """迁移目录映射：`--dir`（单目录，键为空）→ `.mysql-cli.toml [migrations]`（库名 → 目录）。"""
+    if opts.get("dir"):
+        p = Path(opts["dir"]).expanduser()
+        return {"": p if p.is_absolute() else (ctx.root / p)}
+    out: dict[str, Path] = {}
+    for db, rel in (ctx.cfg.get("migrations") or {}).items():
+        p = Path(str(rel)).expanduser()
+        out[db] = p if p.is_absolute() else (ctx.root / p)
+    return out
+
+
+def check_db(conn: Conn, db: str, local: dict[int, tuple[str, int]], ctx: Context):
+    """单库迁移 checksum 自检（只读）⇒ `(entries, bad)`。判定口径见 SKILL.md。"""
+    rows = run_sql(conn, _HISTORY_SQL, db=db, timeout=ctx.timeout())
+    header, body = rows_to_table(rows)
+    applied: dict[int, dict[str, str]] = {}
+    for row in body:
+        rec = dict(zip(header, row))
+        if (rec.get("version") or "").isdigit():
+            applied[int(rec["version"])] = rec
+
+    entries: list[dict] = []
+    bad: list[str] = []
+    for version in sorted(set(applied) | set(local)):
+        rec = applied.get(version)
+        name, computed = local.get(version, ("-", None))
+        recorded = (rec or {}).get("checksum") or ""
+        if rec is None:
+            verdict = "未应用"
+        elif name == "-":
+            verdict = "本地缺文件"
+            bad.append(f"V{version}")
+        elif (rec.get("success") or "1") != "1":
+            verdict = "执行失败(success=0)"
+            bad.append(f"V{version}")
+        elif not recorded:
+            verdict = "记账 NULL（不校验）"
+        elif recorded.lstrip("-").isdigit() and int(recorded) == computed:
+            verdict = "一致"
+        else:
+            verdict = "失配"
+            bad.append(f"V{version}")
+        entries.append({"version": version, "script": name, "local": computed,
+                        "recorded": recorded or "-", "verdict": verdict})
+    return entries, bad
+
+
+def cmd_migrate_check(args, ctx: Context) -> int:
+    _pos, opts = _parse(args)
+    dirs = _migration_dirs(ctx, opts)
+    if not dirs:
+        raise MySQLError("未指定迁移目录：用 --dir，或在 .mysql-cli.toml 配 [migrations] 映射")
+    db_filter = ctx.db()
+    if db_filter:
+        if db_filter in dirs:
+            dirs = {db_filter: dirs[db_filter]}
+        elif len(dirs) > 1:
+            raise MySQLError(f"未知库 {db_filter}；可选：{'、'.join(k for k in dirs if k)}")
+
+    reports: dict[str, dict] = {}
+    mismatched: list[str] = []
+    local_only = False
+    for db, directory in dirs.items():
+        if not directory.is_dir():
+            raise MySQLError(f"迁移目录不存在：{directory}")
+        local = read_migrations(directory)
+        if not db:                                   # `--dir` 且未给库名：只复算本地
+            local_only = True
+            list_local = [[f"V{v}", name, cs] for v, (name, cs) in local.items()]
+            if ctx.json:
+                reports[""] = {"local": [{"version": v, "script": n, "checksum": c}
+                                         for v, (n, c) in local.items()]}
+            else:
+                print(render_table(["版本", "文件", "本地 checksum"], list_local))
+            continue
+        try:
+            entries, bad = check_db(ctx.connection(), db, local, ctx)
+        except MySQLError as exc:
+            print(f"⚠️ {db} 无法校验（{exc}）——跳过", file=sys.stderr)
+            continue
+        reports[db] = {"entries": entries}
+        mismatched += [f"{db}.{v}" for v in bad]
+        if ctx.json:
+            continue
+        print(render_table(["版本", "文件", "本地 checksum", "库记账", "结论"],
+                           [[f"V{e['version']}", e["script"],
+                             e["local"] if e["local"] is not None else "-",
+                             e["recorded"], e["verdict"]] for e in entries]))
+        green = sum(1 for e in entries if e["verdict"] in _GREEN)
+        bad_n = sum(1 for e in entries if e["verdict"] not in _GREEN + ("未应用",))
+        print(f"（{len(entries)} 项：{green} 可校验通过，{bad_n} 项异常；库 {db}）")
+
+    if ctx.json and reports:
+        dump_json({"dbs": {k: v for k, v in reports.items() if k}})
+    if mismatched:
+        print(f"错误：{'、'.join(mismatched)} 与 flyway_schema_history 记账不一致"
+              "——已执行迁移不可改（含注释）；还原为已应用版本，或改落对应 MD。", file=sys.stderr)
+        return 1
+    if reports and not any(reports.values()):
+        return 2
+    if local_only:
+        return 0
+    return 0 if reports else 2
+
+
+# ─────────────────────────── 分派与入口 ───────────────────────────
+_COMMANDS = {
+    "ping": cmd_ping,
+    "query": cmd_query,
+    "script": cmd_script,
+    "tables": cmd_tables,
+    "sample": cmd_sample,
+    "backup": cmd_backup,
+    "import": cmd_import,
+    "migrate-check": cmd_migrate_check,
+}
+
+
+def dispatch(args: list[str], ctx: Context) -> int:
+    cmd, rest = args[0], args[1:]
+    fn = _COMMANDS.get(cmd)
+    if fn is None:
+        print(f"未知命令 {cmd!r}\n{USAGE}", file=sys.stderr)
+        return 2
+    return fn(rest, ctx)
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    root_arg, env_files, json_mode, dry_run, conn_opts, rest = _split_globals(argv)
+
+    if root_arg:
+        root = Path(root_arg).expanduser().resolve()
+    else:
+        env = os.environ.get("MYSQL_CLI_ROOT")
+        root = Path(env).expanduser().resolve() if env else _find_root()
+    CFG["root"] = root
+
+    if not rest or rest[0] in ("-h", "--help"):
+        print(USAGE)
+        return 0
+    try:
+        cfg = _load_toml(root)
+        ctx = Context(root, cfg, env_files, conn_opts, json_mode, dry_run)
+        return dispatch(rest, ctx)
+    except MySQLError as exc:
+        print(f"错误：{exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
