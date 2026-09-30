@@ -14,7 +14,7 @@ user-invocable: true
 
 - **是编排器，不是能力本体**：第 1／2／5／6 环点名既有 skill（`grilling`／`plan-persist`／`research`／`simplify-code`／`code-review`），收尾的提交信息另点名 `commit-message`；本 skill **不复制**它们的正文——复制即漂移。
 - **零项目路径假设**：本 skill 不出现任何具体项目的路径、命令、台账名。项目通过 `## 工作流水线` 声明段提供（模板见 `TEMPLATE.md`）。
-- **最小默认**（项目无声明时）：计划落 `.agent/plans/`（由 `plan-persist` 建）＋ 无外部台账 ＋ 门禁命令为空（跳过所有需命令的判据）。
+- **最小默认**（项目无声明时）：计划落 `.agents/plans/`（由 `plan-persist` 建）＋ 无外部台账 ＋ 门禁命令为空（跳过所有需命令的判据）。
 - **不越权**：推送、发布、破坏性操作**不属于流水线收尾**（见 §6）。
 
 ---

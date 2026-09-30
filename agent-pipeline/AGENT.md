@@ -69,7 +69,7 @@ ln -s ../../../.agents/skills/agent-pipeline ~/.pi/agent/skills/agent-pipeline
 
 ## 与 plan-persist 的分工
 
-- **`plan-persist`**：执行期的**载体**——`.agent/plans/` 落盘、五态机、进度表驱动中断续作。
+- **`plan-persist`**：执行期的**载体**——`.agents/plans/` 落盘、五态机、进度表驱动中断续作。
 - **`agent-pipeline`**：**编排与闸门**——七环顺序、接入判定、外层循环（多计划）、上下文卫生、托管。
 
 一句话：`plan-persist` 回答「这个计划做到哪了」；`agent-pipeline` 回答「整件事走到哪一步了、下一步该谁」。

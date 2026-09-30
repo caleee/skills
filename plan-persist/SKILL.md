@@ -19,15 +19,17 @@ user-invocable: true
 
 ## 核心规则
 
-- **落盘主位**：项目内 `.agent/plans/`（已在 `.gitignore`，不入仓）；`.claude/plans → ../.agent/plans` 仅作 Muse 兼容相对软链。
-- **文件名**：`NN-<slug>.md`，`NN` 两位序号自增（如 `01-foo.md`、`02-bar.md`）；以 agent 省 token（一扫得序）优先。
-- **发现**：`.agent/plans/index.md` 极简列表（每行 `NN - 标题 (状态)`），由模型在“新建/改状态/废弃”时同步维护；新会话自动扫描该表，以进度表为准、确认后续作。
+- **落盘主位**：项目根 `.agents/plans/`（`.agents/` 已在 `.gitignore`，不入仓）；`.claude/plans → ../.agents/plans` 仅作 Muse / Claude Code 兼容相对软链。
+  - **为什么是 `.agents`（复数）**：与 `AGENTS.md` 同源的社区约定——`.agents Protocol`（dotagentsprotocol.com）、`getsentry/dotagents`、`agentsstandard.com` 均以 `.agents/` 作为 agent 相关物（配置/技能/计划）的统一锚点；单数 `.agent` 无生态支撑，且与 `AGENTS.md` 的复数不一致。
+- **业务类型分组**：`plans/` 下**按业务类型建目录**（自由命名，如 `mt/`、`fp/`、`infra/`、`docs/`），plan 落在其内；**不分组**仅在单业务/小项目且直接子项 ≤24 时允许（目录预算原则）。
+- **文件名**：`NN-<slug>.md`，`NN` 两位序号**在业务目录内自增**（如 `mt/01-foo.md`、`mt/02-bar.md`）；以 agent 省 token（一扫得序）优先。
+- **发现**：`.agents/plans/index.md` 极简列表，**按业务分节**（`## <业务>` 节下每行 `NN - 标题 (状态)`），由模型在“新建/改状态/废弃”时同步维护；新会话自动扫描该表，以进度表为准、确认后续作。
 - **并发**：允许多活跃 plan 并行；“最新未完成”即续作对象。
-- **状态机（五态）**：`待办 → 进行中 → 已完成 → 已归档 / 已废弃`；已废弃移至 `.agent/plans/archived/`。
-- **不依赖 `EnterPlanMode`**：Muse 可沿用交互确认，确认后仍按本 skill 落 `.agent/plans/`；其他 agent 直接落盘。
+- **状态机（五态）**：`待办 → 进行中 → 已完成 → 已归档 / 已废弃`；已废弃移至 `.agents/plans/archived/<业务>/`。
+- **不依赖 `EnterPlanMode`**：Muse 可沿用交互确认，确认后仍按本 skill 落盘；其他 agent 直接落盘。
 - **引用**：plan 内写分支名 + 关联文件列表的轻量指针。
 - **演进**：小改原位编辑留痕；大范围变更另起新 plan，旧 plan 标“已废弃→ NN-xxx”。
-- **存量**：旧 `~/.agent/plans/` 按需迁移（提到旧 plan 时再搬）。
+- **存量**：旧 `.agent/plans/` 与 `~/.claude/plans/` 按需迁移（提到旧 plan 时再搬）。
 
 ## Plan 内容（5 段 + 验证，轻量清单）
 
@@ -42,26 +44,28 @@ user-invocable: true
 
 ## 流程
 
-1. **建前对齐**：读根 `CONTEXT.md`（术语：模块/落盘/续作/五态机）；读 `.agent/plans/index.md` 取下一序号。
-2. **建盘**：初始化 `.agent/plans/` + `archived/` + `index.md` + 相对软链（如不存在）；写入 `NN-<slug>.md` 并在 `index.md` 增一行“NN - 标题 (待办/进行中)”。
+1. **建前对齐**：读根 `CONTEXT.md`（术语：模块/落盘/续作/五态机/业务类型目录）；读 `.agents/plans/index.md` 取**目标业务目录**的下一序号。
+2. **建盘**：初始化 `.agents/plans/<业务>/` + `archived/<业务>/` + `index.md` + 相对软链（如不存在）；写入 `<业务>/NN-<slug>.md`，并在 `index.md` 对应业务节下增一行“NN - 标题 (待办/进行中)”。
 3. **执行中更新**：每完成一模块即改进度表为“☑ 已完成 (日期)”并补一行执行记录；增删文件同步改表；`index.md` 状态同步。
-4. **中断续作**：新会话自动 `cat .agent/plans/index.md`，以“最新未完成”的进度表为准，不重问已定事项；确认后继续。
-5. **归档/废弃**：完成后改“已完成”→“已归档”；废弃改“已废弃”并 `mv NN-xxx.md .agent/plans/archived/`，索引同步留痕。
+4. **中断续作**：新会话自动 `cat .agents/plans/index.md`，以“最新未完成”的进度表为准，不重问已定事项；确认后继续。
+5. **归档/废弃**：完成后改“已完成”→“已归档”；废弃改“已废弃”并 `mv <业务>/NN-xxx.md .agents/plans/archived/<业务>/`，索引同步留痕。
 
 ## 硬性禁止
 
 - ❌ 建后不落盘（先规划再开工，禁先改代码后补 plan）
 - ❌ 跳过进度表更新（进度表是唯一可信源）
 - ❌ 单活跃 plan 假设（允许多活跃，需扫索引）
-- ❌ `.agent/plans/` 入仓（已 gitignore，plan 是本地续作便笺）
+- ❌ `.agents/plans/` 入仓（已 gitignore，plan 是本地续作便笺）
+- ❌ 业务目录不分组却无限增长（同一目录直接子项 >24 必须先分组）
 - ❌ 大改原 plan 不留痕（大改须另起并废弃旧 plan）
 
 ## 示例
 
 - 用户：“重构鉴权模块，分三步：改表结构、加中间件、补测试”
-  → 模型检测 ≥3 步骤，直接落 `01-auth-refactor.md`，进度表三行，逐模块更新
+  → 模型检测 ≥3 步骤，落 `.agents/plans/mt/01-auth-refactor.md`，进度表三行，逐模块更新
 - 用户：`/plan-persist 重排文档导航`
   → 显式触发，建盘后按 5 段写，不论步骤数
+- 单业务小项目（plan 总数 <24）：可直接落 `.agents/plans/01-x.md`，省略业务层
 
 ## 模板要点（供复制，展开写法）
 

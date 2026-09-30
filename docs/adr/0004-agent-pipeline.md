@@ -36,7 +36,7 @@
 
 七环**点名**既有 skill 执行（`grilling`／`plan-persist`／`simplify-code`／`code-review`／`commit-message`），不复制其正文；本 skill 只承载**编排、闸门、降级、接入、外层循环、托管、收尾**这七件没有归属的事。
 
-通用性来自「**读取声明**」而非「内置假设」：项目在 `AGENTS.md` 写一段 `## 工作流水线` 声明其落点／命令／红线／托管默认（模板见 `agent-pipeline/TEMPLATE.md`）；无声明时走最小默认（`.agent/plans/` ＋ 无外部台账 ＋ 空门禁）。
+通用性来自「**读取声明**」而非「内置假设」：项目在 `AGENTS.md` 写一段 `## 工作流水线` 声明其落点／命令／红线／托管默认（模板见 `agent-pipeline/TEMPLATE.md`）；无声明时走最小默认（`.agents/plans/` ＋ 无外部台账 ＋ 空门禁）。
 
 ### 2. 单 skill，不拆
 

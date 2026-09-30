@@ -2,6 +2,7 @@
 
 - 状态：已接受（grilling 35 决收束）
 - 修订：2026-09-29 根 `AGENT.md` 更名为 `AGENTS.md`（见 ADR-0003），下文相关文件名已同步
+- 修订：2026-09-30 落盘主位 `.agent/plans/` → `.agents/plans/`（复数对齐 `AGENTS.md` 与 `.agents` 社区约定），并新增**业务类型分组层**；见 §2
 - 日期：2026-08-31
 - 前序：ADR-0001（版本与发布策略）、全局 `~/.claude/CLAUDE.md` Plan 持久化规则、现有实稿 `~/.claude/plans/squishy-weaving-bumblebee.md`
 
@@ -22,12 +23,14 @@
 - 名：`plan-persist`（`[a-zA-Z0-9_-]`，与 `sub2cfg`/`commit-message` 并列）。
 - 结构：根 `plan-persist.md`（单行 description）+ `plan-persist/SKILL.md`（完整定义）+ `plan-persist/AGENT.md` + `plan-persist/VERSION`（`0.1.0`），遵循 ADR-0001 与 `CLAUDE.md` 结构约束。
 
-### 2. 落盘：纯项目内 + 软链兼容
+### 2. 落盘：纯项目内 + 业务分组 + 软链兼容
 
-- 主位：`<project>/.agent/plans/`（gitignore，不跟踪）。
-- 兼容：`<project>/.claude/plans → ../.agent/plans` 相对软链，使 Muse 原生路径互通；不双写、不绝对软链。
-- 初始化：skill 安装即建 `.agent/plans/` + `archived/` + `index.md` + 软链，不等首 plan 懒创建。
-- 存量：`~/.claude/plans/` 按需迁移。
+- 主位：`<project>/.agents/plans/`（gitignore，不跟踪）。
+  - 目录名取**复数** `.agents`：与 `AGENTS.md` 同源的社区约定（`.agents Protocol`（dotagentsprotocol.com）／`getsentry/dotagents`／`agentsstandard.com` 均以 `.agents/` 为 agent 相关物锚点）；单数 `.agent` 无生态支撑。
+- **业务类型分组**：`plans/` 下第一层为业务目录（自由命名，如 `mt/`、`fp/`、`infra/`），plan 落其内、`NN` **组内**自增；单业务小项目且直接子项 ≤24 可省略该层（目录预算原则）。
+- 兼容：`<project>/.claude/plans → ../.agents/plans` 相对软链，使 Muse / Claude Code 原生路径互通；不双写、不绝对软链。
+- 初始化：skill 安装即建 `.agents/plans/<业务>/` + `archived/<业务>/` + `index.md` + 软链，不等首 plan 懒创建。
+- 存量：旧 `.agent/plans/`、`~/.claude/plans/` 按需迁移。
 
 ### 3. 何时建 plan（收紧）
 
@@ -38,15 +41,15 @@
 
 - 骨架：保留 5 段 — Context + 模块归类表 + 大计划 + 各模块小计划 + 进度表 + 执行记录；每 plan 末尾加“验证”段。
 - 更新：模块级（每完成一模块改状态 + 补执行记录），不细到任务级。
-- 命名：`NN-<slug>.md` 序号+slug 递增，以 agent 省 token（一扫得序）优先于人类一眼序。
+- 命名：`NN-<slug>.md` 序号+slug 递增（**业务目录内**自增），以 agent 省 token（一扫得序）优先于人类一眼序。
 - 引用：plan 内写分支名 + 关联文件列表的轻量指针。
 - 演进：小改原位编辑留痕；大改另起新 plan，旧 plan 标已废弃并指向新 plan。
 
 ### 5. 多 plan 与发现
 
 - 并发：允许多活跃 plan 并行。
-- 索引：`.agent/plans/index.md` 极简列表（`NN - 标题 (状态)`），由模型在新建/改状态/废弃时同步维护；新会话自动扫描该索引，以进度表为准，确认后续作。
-- 状态机：五态 — `待办 → 进行中 → 已完成 → 已归档 / 已废弃`；已废弃移至 `.agent/plans/archived/`。
+- 索引：`.agents/plans/index.md` 极简列表，**按业务分节**（`## <业务>` 下每行 `NN - 标题 (状态)`），由模型在新建/改状态/废弃时同步维护；新会话自动扫描该索引，以进度表为准，确认后续作。
+- 状态机：五态 — `待办 → 进行中 → 已完成 → 已归档 / 已废弃`；已废弃移至 `.agents/plans/archived/<业务>/`。
 - 衔接：不依赖 `EnterPlanMode`，文字约定兜底。
 
 ### 6. 模板重量与词汇
@@ -79,6 +82,6 @@
 ## 后果
 
 - `CONTEXT.md` 为统一词汇单一事实源（原 `docs/glossary.md` 已合表删除）。
-- `.agent/plans/` gitignore，需在 `AGENTS.md` 指引“安装即初始化”。
-- `index.md` 成为多 plan 发现的单一入口，模型承担同步维护职责。
+- `.agents/plans/` gitignore，需在 `AGENTS.md` 指引“安装即初始化”。
+- `index.md` 成为多 plan 发现的单一入口（按业务分节），模型承担同步维护职责。
 - 根 `CLAUDE.md` 为 `AGENTS.md` 的相对软链（`120000`），Muse 以常规文件读取会跟随；检出方需 `core.symlinks=true`（macOS/Linux 默认）。

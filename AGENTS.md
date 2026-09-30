@@ -12,7 +12,7 @@ Claude Code skill 集合仓库（人类入口见 [`README.md`](README.md)）。�
 |-------|------|----------|--------|
 | sub2cfg | `sub2cfg.md` | `sub2cfg/` | 订阅链接转 Clash/Sing-box/DAE 完整配置 |
 | commit-message | `commit-message.md` | `commit-message/` | 按 Conventional Commits 生成提交信息 |
-| plan-persist | `plan-persist.md` | `plan-persist/` | 复杂任务先落盘（`.agent/plans/NN-<slug>.md`）再开工，进度表驱动中断续作 |
+| plan-persist | `plan-persist.md` | `plan-persist/` | 复杂任务先落盘（`.agents/plans/<业务>/NN-<slug>.md`）再开工，进度表驱动中断续作 |
 | obscura | `obscura.md` | `obscura/` | 隐身无头浏览器 — JS 渲染抓取、截图对比、CDP/MCP 自动化 |
 | agent-doctor | `agent-doctor.md` | `agent-doctor/` | 本机多 agent 能力自检 — 全局指令/扩展加载/MCP/软链/hooks/密钥 |
 | agent-pipeline | `agent-pipeline.md` | `agent-pipeline/` | 跨 agent 工作流水线编排 — 七环闸门/中途接入/多计划串行与上下文卫生/无人值守托管 |
@@ -42,8 +42,8 @@ Claude Code skill 集合仓库（人类入口见 [`README.md`](README.md)）。�
 
 ## Plan 约束
 
-- 复杂任务（≥3 步骤或用户明示“先规划/做大 plan”）先落 `.agent/plans/NN-<slug>.md`（5 段骨架 + 进度表五态机 + 执行记录 + 验证段），并同步 `index.md`（极简列表）；`.claude/plans → ../.agent/plans` 仅作 Muse 兼容软链
-- `.agent/` 已在 `.gitignore`，plan 不入仓；小改原位留痕、大改另起新 plan 旧的移 `archived/`
+- 复杂任务（≥3 步骤或用户明示“先规划/做大 plan”）先落 `.agents/plans/<业务>/NN-<slug>.md`（5 段骨架 + 进度表五态机 + 执行记录 + 验证段），并同步 `index.md`（按业务分节的极简列表）；`.claude/plans → ../.agents/plans` 仅作 Muse / Claude Code 兼容软链
+- `.agents/` 已在 `.gitignore`，plan 不入仓；小改原位留痕、大改另起新 plan 旧的移 `archived/<业务>/`
 
 ## 完成检查清单
 

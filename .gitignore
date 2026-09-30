@@ -222,7 +222,7 @@ sub2cfg/sample/real-*
 
 # Others
 .claude/
-.agent/
+.agents/
 .codegraph/
 **/.DS_Store
 .pi/
