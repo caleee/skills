@@ -36,6 +36,11 @@ Claude Code skill 集合仓库（人类入口见 [`README.md`](README.md)）。�
 - 目录内所有文件必须 `git add` 跟踪（发布用 `git archive` 仅打包 tracked 文件）
 - 首次发布前必须手动创建 `<name>/VERSION`（`0.1.0`，无 `v` 前缀，单一事实源）
 
+## 清单与安装
+
+- **`skills.json`**（仓根）：机器可读 skill 清单，由 `scripts/gen_skills_json.py` 从各 `<name>.md` frontmatter ＋ `<name>/VERSION` **派生**——新增/改 skill 后重跑；`--check` 拦漂移（`tests/test_skills_manifest.py` 已锁）。**不要手改**。
+- **`install.sh`**：把 skill **软链**进工程——`<工程>/.agents/skills/<skill>` → 本仓，`<工程>/.claude/skills/<skill>` → 兼容链；工程声明清单 `<工程>/.agents/skills.txt`，快照写 `.agents/skills.lock`。软链＝单一真源、改库即生效；代价是工程 clone 不自举（重跑 `install.sh` 补偿）。
+
 ## VERSION 与发布
 
 - `VERSION` 语义 `MAJOR.MINOR.PATCH`，每次发布 patch+1（不按 commit 类型分）
@@ -73,3 +78,4 @@ Claude Code skill 集合仓库（人类入口见 [`README.md`](README.md)）。�
 4. `AGENTS.md`（本文件）与 `README.md` 索引已同步
 5. `CONTEXT.md` 词汇已对齐新增术语
 6. `python3 -m unittest discover -s tests` 全绿（本批改动含 CLI 时）
+7. `python3 scripts/gen_skills_json.py --check` 绿（新增/改 skill 后已重生成 `skills.json`）

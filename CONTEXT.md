@@ -37,6 +37,8 @@
 | **office-docs（办公文档）** | 管办公文档**内容轴**的 skill：PPTX 零依赖定点编辑（只改目标字节、可 diff 回填）／XLSX 读取与 md→xlsx。**判据来自 skill，基线取值来自项目 `## 办公文档` 声明段 ＋ `.office-docs.toml`** | 汇报材料编辑（泛称） |
 | **ref（office-docs 寻址）** | PPTX 内定位单元的坐标语法（`slide2!sp[3]`／`slide2!tbl0.r1.c2`／`.p0`）；序号与 `dump` 一致，坐标一律 pt | 位置引用（易与行号混） |
 | **`.office-docs.toml`** | 项目根的**机器可读**配置（只读模板基线目录）；与 `AGENTS.md` 的 `## 办公文档`（自然语言）声明段配套 | — |
+| **skills.json** | 仓根的**机器可读** skill 清单（name/description/version/path）；由 `scripts/gen_skills_json.py` 从 `<name>.md` ＋ `<name>/VERSION` **派生**，`--check` 拦漂移 | — |
+| **软链安装（`install.sh`）** | 把本仓 skill 软链进工程（`.agents/skills/`＋`.claude/skills/`）的机制：**单一真源、改库即生效**；工程声明清单 `.agents/skills.txt`，快照 `.agents/skills.lock`。代价＝工程 clone 不自举（重跑补偿） | 复制入仓（旧法） |
 
 ## 边界与引用
 

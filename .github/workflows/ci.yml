@@ -1,7 +1,7 @@
 name: CI
 
-# llm-wiki CLI 的回归网：P0 级缺陷（deploy 缺 import、nav build 写空 nav、
-# lint 漏检）都会被这些冒烟测试直接测出。零第三方依赖，无需安装 mkdocs。
+# skill CLI 的回归网：P0 级缺陷（deploy 缺 import、nav build 写空 nav、lint 漏检、
+# pptx 定点替换改坏非目标条目）都会被这些冒烟测试直接测出。零第三方依赖，无需装 mkdocs。
 on:
   push:
   pull_request:
@@ -24,5 +24,10 @@ jobs:
       - name: 冒烟测试（stdlib unittest）
         run: python3 -m unittest discover -s tests -v
 
-      - name: 校验 CLI 可解析（语法与命令面）
-        run: python3 llm-wiki/cli/llmwiki --help >/dev/null
+      - name: 校验各 CLI 可解析（语法与命令面）
+        run: |
+          python3 llm-wiki/cli/llmwiki --help >/dev/null
+          python3 office-docs/cli/office-docs --help >/dev/null
+
+      - name: 校验 skills.json 与真源一致（防清单漂移）
+        run: python3 scripts/gen_skills_json.py --check
