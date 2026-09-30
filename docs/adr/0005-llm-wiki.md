@@ -50,3 +50,20 @@ tenant 仓积累了成熟的知识库治理实践（三层模型、落库分流�
 - **`lint` 成为 P1 的执行者**——目录预算从理念变成可校验的门禁。
 - **与 `agent-pipeline` 的边界**：本 skill 管**空间轴**（结构/保鲜/交付），agent-pipeline 管**时间轴**（何时做哪步），交叉点仅在流水线收尾环。
 - 首次在 tenant 上运行 `lint` 即命中 3 处 P1 超预算（`raw/design/multi-tenant` 77 项等）——验证了判据的有效性。
+
+## 后续注记（不回改上方决议，只加注记）
+
+- **2026-09-30（v0.1.4）：`nav build` 语义收紧。** 原实现在目录没有 `index.md`（或 `index.md`
+  没有 H1）时写出 `nav: []` 当占位；而 awesome-pages 里空 `nav` 的真实语义是**丢弃该目录
+  全部子项**（只有 `meta.nav is None` 才自动列出）——页面照常生成、能搜索、能被链接，却
+  静默地从侧边栏消失（实测 34 个目录 / 141 页，且它们均不在 `not_in_nav` 里）。现改为
+  **不写空 nav ＋ 清理存量空 nav**，写入改为合并式（只增改顶层 `title`、只删空 `nav`，
+  保留手写 `hide`/`collapse`/非空 `nav`），生成逻辑抽成纯函数 `render_pages()`。
+- **2026-09-30（v0.1.4）：`lint` 在 `nav_mode=auto` 下不再跳过检查。** 原判据「导航自动
+  包含全部页面」被上一条击穿——同一时刻 `lint` 报 0 问题而 141 页不在导航里。现改为
+  **导航可达性检查**（报出空 nav 目录及其受影响页数 ＋ 打印导航覆盖汇总），新增独立开关
+  `lint.nav_coverage`（不能被 `lint.orphans=false` 连带关闭）。
+- 同批另修：`deploy` 的 `shutil` 漏 import（自加入起从未成功执行）与目标校验、`find_root`
+  分轮定位（monorepo 内嵌小仓锁错根）、两个只写不读的假配置（`pdf.theme_map`、
+  `export.llms_txt`）接线。第 2 节的命令面清单已补 `deploy`。
+- 原决议本身（配置载体 `.llm-wiki.toml`、判据与取值分离、不迁移便携包）**未变**。

@@ -26,6 +26,9 @@ Claude Code skill 集合 — 按需取用的可独立发布技能。
    - Claude Code：`~/.claude/skills/`
    - Codex / 通用：`~/.agents/skills/` 或 `~/.config/opencode/skills/`
 
+> 升级已有安装位时请**整目录覆盖**（含 `<name>/VERSION`）——`VERSION` 是版本号的
+> 单一真源，只换实现文件会让它停留在旧值，与 Release 页对不上。
+
 ## 给维护者
 
 新增 skill 需同时满足仓库规范与发布机制，详见 [AGENTS.md](AGENTS.md) 与 `docs/adr/0001-version-and-release-strategy.md`。

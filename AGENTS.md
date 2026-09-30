@@ -41,6 +41,12 @@ Claude Code skill 集合仓库（人类入口见 [`README.md`](README.md)）。�
 - Tag ` <skill>-v<version>` 打在 bump commit 上，bump 由 `github-actions[bot]` 提交 `chore(<skill>): release v<ver> [skip ci]`
 - 修改仅影响发布机制时，同步更新 `docs/adr/0001` 与本文件
 
+## 回归网
+
+- `tests/` 是仓级冒烟测试（stdlib `unittest`）：`python3 -m unittest discover -s tests`；CI 见 `.github/workflows/ci.yml`（push/PR 触发，显式钉 Python 3.11）
+- 测试**不进发布包**（`git archive` 只打包 `<name>.md` + `<name>/`），故不受「skill 目录内仅放运行时依赖」约束
+- 改 CLI 实现时同步加测试——CI 用来拦 P0 级回归（历史教训：`deploy` 的 `NameError` 随着 3 个 Release 发出去而无人发现）
+
 ## Plan 约束
 
 - 复杂任务（≥3 步骤或用户明示“先规划/做大 plan”）先落 `.agents/plans/<业务>/NN-<slug>.md`（5 段骨架 + 进度表五态机 + 执行记录 + 验证段），并同步 `index.md`（按业务分节的极简列表）；`.claude/plans → ../.agents/plans` 仅作 Muse / Claude Code 兼容软链
@@ -53,3 +59,4 @@ Claude Code skill 集合仓库（人类入口见 [`README.md`](README.md)）。�
 3. 目录内文件已全部 `git add`
 4. `AGENTS.md`（本文件）与 `README.md` 索引已同步
 5. `CONTEXT.md` 词汇已对齐新增术语
+6. `python3 -m unittest discover -s tests` 全绿（本批改动含 CLI 时）
