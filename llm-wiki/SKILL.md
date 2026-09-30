@@ -84,16 +84,18 @@ user-invocable: true
 | 命令 | 作用 | 依赖 |
 |---|---|---|
 | `llmwiki check-deps` | 校验 mkdocs 及插件（含主版本硬上限；`nav_mode=auto` 时含 awesome-pages） | — |
-| `llmwiki build [--strict]` | 构建站点（strict＝警告即失败） | mkdocs |
-| `llmwiki deploy [目录] [--force]` | 构建（strict）并部署到目录（默认 `<项目根>/dist`） | mkdocs |
-| `llmwiki serve start/stop/status [--full]` | 本地预览（默认增量） | mkdocs |
-| `llmwiki nav build [--dry-run]` | **由目录生成导航**（`.pages`），落实 P4；只增改 `title`、清掉空 `nav` | — |
-| `llmwiki lint [--semantic]` | P1 目录预算／断链／导航可达性（`nav_mode=auto` 时以可达性检查替代孤儿检查）；`--semantic` 加待确认·过期标记密度 | — |
+| `llmwiki build` | 构建站点（strict 模式＝警告即失败） | mkdocs |
+| `llmwiki deploy` | 构建（strict）并部署到目录（默认 `<项目根>/dist`） | mkdocs |
+| `llmwiki serve` | 本地预览（默认增量构建） | mkdocs |
+| `llmwiki nav build` | **由目录生成导航**（`.pages`），落实 P4；只增改 `title`、清掉空 `nav` | — |
+| `llmwiki lint` | P1 目录预算／断链／导航可达性（`nav_mode=auto` 时以可达性检查替代孤儿检查）；语义层（待确认·过期标记密度）默认关 | — |
 | `llmwiki drift` | 上游仓（如被调研代码）演进 vs 我方分析篇的**时差** | git |
-| `llmwiki export [--llms-txt] [--out F]` | 生成 AI 可消费出口 | — |
-| `llmwiki pdf <src> <out> <stem>` | mermaid 转 PNG 中转（供 md→pdf） | mmdc |
+| `llmwiki export` | 生成 AI 可消费出口 | — |
+| `llmwiki pdf` | mermaid 转 PNG 中转（供 md→pdf） | mmdc |
 
-> **旗标以 `llmwiki <cmd> --help` 为准**——上表只给常用形态；逐条罗列会与实现漂移。
+> **旗标以 `llmwiki <cmd> --help` 为准**——本表只给命令面与作用，**不复述旗标**
+> （逐条罗列必与实现漂移）。`nav build` / `deploy` 会写盘甚至删目录，用前先看
+> `--help` 里有无预演或确认旗标。
 
 **配置**：项目根 `.llm-wiki.toml`（端口、目录映射、lint 开关、drift watch、pdf 主题映射）。无配置时用最小默认。
 

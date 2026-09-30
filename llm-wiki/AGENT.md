@@ -43,7 +43,7 @@ llm-wiki/
   - **CLI（机器值）**：命令行参数 → `.llm-wiki.toml` → 内置默认。`AGENTS.md` 的声明段**不参与**。
   - **agent／人（自然语言）**：`AGENTS.md` 的 `## 知识库` 声明段 ＋ `.llm-wiki.toml`。
   - 项目根定位：`--root` → `LLMWIKI_ROOT` 环境变量 → 向上按 `.llm-wiki.toml` → `mkdocs.yml` → `.git` **分轮**查找。
-- **CLI 写项目文件仅在三处**：`nav build` 的 `.pages`、`build` 的站点产物、`export` 的 `llms.txt`（`--out` 可改）。`deploy` 只写你指定的目标目录（含 `.llmwiki-deploy` 标记）。
+- **CLI 写文件只发生在这些命令**：`nav build` 的 `.pages`；`build` / `deploy` 的站点产物与目标目录（`deploy` 另写 `.llmwiki-deploy` 标记）；`export` 的 `llms.txt`；`pdf` 的 `<outdir>/<stem>-N.mmd|.png` 与 `<stem>.pdf.md`。其余命令只读。
 
 ## 扩展点
 

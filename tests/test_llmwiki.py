@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import importlib.machinery
+import importlib.metadata
 import importlib.util
 import io
 import os
@@ -40,6 +41,13 @@ def _load_cli():
 
 
 wiki = _load_cli()
+
+
+def _version_missing_awesome(name: str) -> str:
+    """假 `importlib.metadata.version`：除 awesome-pages 外都视为已装。"""
+    if name == "mkdocs-awesome-pages-plugin":
+        raise importlib.metadata.PackageNotFoundError(name)
+    return "1.6.0"
 
 
 class Fixture(unittest.TestCase):
@@ -167,6 +175,18 @@ class TestLintNavCoverage(Fixture):
         self.assertEqual(code, 1)
         self.assertIn("[孤儿]", out)
 
+    def test_nav_coverage_is_auto_only(self):
+        """manual 下 `mkdocs.yml` 的 nav 才是真源，`.pages` 的空 nav 可能被它覆盖。"""
+        self.md("a/x.md")
+        (self.root / "mkdocs.yml").write_text(
+            "site_name: t\nnav:\n  - x: a/x.md\n", encoding="utf-8")
+        self.cfg["site.nav_mode"] = "manual"
+        (self.root / "docs" / "b").mkdir()
+        (self.root / "docs" / "b" / ".pages").write_text("nav: []\n", encoding="utf-8")
+        code, out = self.run_cli(wiki.cmd_lint, Namespace(semantic=False, max=None))
+        self.assertNotIn("[导航]", out)
+        self.assertEqual(code, 0, out)
+
 
 # ─────────────────────── M1 · deploy ───────────────────────
 class TestDeploy(Fixture):
@@ -228,6 +248,50 @@ class TestDeploy(Fixture):
         self.assertIn(str(self.root / "dist"), out_txt)
 
 
+# ─────────────────────── M3⑤ · check-deps 按 nav_mode 分档 ───────────────────────
+class TestCheckDeps(Fixture):
+    def test_auto_treats_awesome_pages_as_required(self):
+        self.cfg["site.nav_mode"] = "auto"
+        with mock.patch.object(importlib.metadata, "version", _version_missing_awesome):
+            code, out = self.run_cli(wiki.cmd_check_deps, Namespace())
+        self.assertEqual(code, 1, out)
+        self.assertIn("缺少依赖", out)
+        self.assertIn("mkdocs-awesome-pages-plugin", out)
+
+    def test_manual_ignores_missing_awesome_pages(self):
+        self.cfg["site.nav_mode"] = "manual"
+        with mock.patch.object(importlib.metadata, "version", _version_missing_awesome):
+            code, out = self.run_cli(wiki.cmd_check_deps, Namespace())
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("缺少依赖", out)
+
+    def test_manual_hints_when_awesome_pages_installed(self):
+        self.cfg["site.nav_mode"] = "manual"
+        with mock.patch.object(importlib.metadata, "version", lambda name: "1.6.0"):
+            code, out = self.run_cli(wiki.cmd_check_deps, Namespace())
+        self.assertEqual(code, 0, out)
+        self.assertIn("非必需", out)
+
+    def test_dependency_constants_are_disjoint(self):
+        self.assertIn("mkdocs-awesome-pages-plugin", wiki.NAV_DEPS)
+        self.assertNotIn("mkdocs-awesome-pages-plugin", wiki.DEPS)
+
+
+# ─────────────────────── lint.ignore 的两类语义 ───────────────────────
+class TestSkip(Fixture):
+    def test_segment_name_matches_any_depth(self):
+        for rel in ("archive/b.md", "a/archive/b.md", "a/b/archive/c.md"):
+            self.assertTrue(wiki.skip(Path(rel), self.cfg), rel)
+        self.assertFalse(wiki.skip(Path("archived/b.md"), self.cfg))
+
+    def test_subpath_prefix_matches_prefix_and_below(self):
+        self.cfg["lint.ignore"] = [".tmp", "raw/asset"]
+        for rel in ("raw/asset/x.md", "raw/asset/deep/x.md"):
+            self.assertTrue(wiki.skip(Path(rel), self.cfg), rel)
+        for rel in ("raw/assetx.md", "raw/other/x.md", "raw/x.md"):
+            self.assertFalse(wiki.skip(Path(rel), self.cfg), rel)
+
+
 # ─────────────────────── 装配（parse + load_cfg） ───────────────────────
 class TestWiring(Fixture):
     def test_check_deps_requires_awesome_pages_only_in_auto(self):
@@ -284,11 +348,14 @@ class TestFindRoot(unittest.TestCase):
 
 # ─────────────── M8 · 两个假配置接线 ───────────────
 class TestConfigWiring(Fixture):
-    def test_theme_map_defaults_and_override(self):
-        self.assertEqual(wiki._pdf_theme_map({}), wiki.PDF_THEME_MAP)
+    def test_theme_map_defaults(self):
+        self.assertEqual(wiki._pdf_theme_map({}),
+                         {"monokai-warm": "dark", "dracula-soft": "dark"})
+
+    def test_theme_map_override(self):
         merged = wiki._pdf_theme_map({"pdf.theme_map.monokai-warm": "light"})
         self.assertEqual(merged["monokai-warm"], "light")
-        self.assertEqual(merged["dracula-soft"], "dark")
+        self.assertEqual(merged["dracula-soft"], "dark", "未覆盖的键保留内置默认")
 
     def test_theme_map_survives_flatten(self):
         (self.root / ".llm-wiki.toml").write_text(
@@ -344,16 +411,32 @@ class TestDocContract(unittest.TestCase):
         self.assertTrue(table, "SKILL.md §6 命令表解析失败")
         self.assertEqual(set(self._subparsers()), set(table))
 
-    def test_documented_flags_exist(self):
-        flags = {o for a in self._subparsers()["deploy"]._actions for o in a.option_strings}
-        self.assertIn("--force", flags)
-        flags = {o for a in self._subparsers()["nav"]._actions for o in a.option_strings}
-        self.assertIn("--dry-run", flags)
+    def test_command_table_lists_no_flags(self):
+        """P1-5：命令表不复述旗标——逐条罗列必与实现漂移。"""
+        rows = [ln for ln in SKILL_MD.read_text(encoding="utf-8").splitlines()
+                if re.match(r"^\|\s*`llmwiki ", ln)]
+        self.assertTrue(rows)
+        for ln in rows:
+            self.assertNotIn("--", ln, f"命令表不应出现旗标：{ln}")
 
-    def test_template_documents_every_lint_key(self):
-        text = TEMPLATE_MD.read_text(encoding="utf-8")
-        for key in (k.split(".", 1)[1] for k in wiki.DEFAULTS if k.startswith("lint.")):
-            self.assertRegex(text, rf"(?m)^{key}\s*=", f"TEMPLATE.md 未记录 lint.{key}")
+    def test_unsafe_semantics_flags_exist(self):
+        """表里不复述旗标，但有写入/删除语义的命令必须真有预演或确认旗标。"""
+        sub = self._subparsers()
+        self.assertIn("--force", {o for a in sub["deploy"]._actions for o in a.option_strings})
+        self.assertIn("--dry-run", {o for a in sub["nav"]._actions for o in a.option_strings})
+
+    def test_template_lint_keys_agree_with_defaults(self):
+        block = TEMPLATE_MD.read_text(encoding="utf-8").split("[lint]", 1)[1].split("\n[", 1)[0]
+        template = set(re.findall(r"(?m)^([a-z_]+)\s*=", block))
+        defaults = {k.split(".", 1)[1] for k in wiki.DEFAULTS if k.startswith("lint.")}
+        self.assertEqual(defaults, template,
+                         "TEMPLATE.md 的 [lint] 段与 DEFAULTS 的 lint.* 键必须双向一致")
+
+    def test_template_pdf_theme_keys_match_builtin_map(self):
+        block = (TEMPLATE_MD.read_text(encoding="utf-8")
+                 .split("[pdf.theme_map]", 1)[1].split("```", 1)[0])
+        template = set(re.findall(r'(?m)^"([^"]+)"\s*=', block))
+        self.assertEqual(template, set(wiki.PDF_THEME_MAP))
 
     def test_no_stale_promises(self):
         blob = "\n".join(p.read_text(encoding="utf-8")
@@ -379,6 +462,21 @@ class TestNavPaths(Fixture):
 
     def test_missing_config_returns_empty(self):
         (self.root / "mkdocs.yml").unlink()
+        self.assertEqual(wiki.nav_paths(self.cfg), set())
+
+    def test_flow_style_nav(self):
+        (self.root / "mkdocs.yml").write_text(
+            "site_name: t\nnav: [index.md, guide/setup.md]\n", encoding="utf-8")
+        self.assertEqual(wiki.nav_paths(self.cfg), {"index.md", "guide/setup.md"})
+
+    def test_flow_style_nav_under_section(self):
+        (self.root / "mkdocs.yml").write_text(
+            "site_name: t\nnav:\n  - Guide: [a.md, b.md]\n", encoding="utf-8")
+        self.assertEqual(wiki.nav_paths(self.cfg), {"a.md", "b.md"})
+
+    def test_unrelated_flow_key_is_not_treated_as_nav(self):
+        (self.root / "mkdocs.yml").write_text(
+            "site_name: t\nplugins: [search.md]\n", encoding="utf-8")
         self.assertEqual(wiki.nav_paths(self.cfg), set())
 
 

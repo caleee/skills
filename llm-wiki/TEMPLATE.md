@@ -36,9 +36,12 @@ nav_mode = "auto"          # auto=由目录生成 .pages(P4) | manual=用 mkdocs
 [lint]
 max_children = 24          # P1 目录预算；0 = 关闭
 broken_links = true
-orphans = true             # 孤儿页（`nav_mode=auto` 时自动替换为导航可达性检查）
-nav_coverage = true        # 导航可达性：报出 `.pages` 空 nav 隐藏的页面（独立开关）
-semantic = false           # 默认关（较慢）；`llmwiki lint --semantic` 可临时开
+orphans = true             # 孤儿页：manual 模式下「无人链接且不在 nav」的页面
+nav_coverage = true        # 导航可达性：`.pages` 空 nav 隐藏的页面（仅 nav_mode=auto）
+semantic = false           # 待确认/过期标记密度（默认关：较慢）
+# orphans 与 nav_coverage **按 nav_mode 二选一**（两种模式下总有一条在守导航可达性）：
+#   auto   → 目录即导航，「孤儿」判据不适用 ⇒ 由 nav_coverage 替代
+#   manual → mkdocs.yml 的 nav 才是真源 ⇒ 由 orphans 守
 ignore = [".tmp", "archive", "node_modules", ".git"]
 # `ignore` 有两类语义（命中即跳过）：
 #   单段名（如 archive）      → 出现在路径任一层即跳过

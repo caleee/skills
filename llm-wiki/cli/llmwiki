@@ -46,8 +46,9 @@ DEFAULTS: dict[str, object] = {
     "site.nav_mode": "auto",                     # auto=P4 由目录生成 .pages
     "lint.max_children": 24,
     "lint.broken_links": True,
-    "lint.orphans": True,
-    "lint.nav_coverage": True,                   # auto 模式下检查 `.pages` 空 nav（导航可达性）
+    "lint.orphans": True,                        # manual 模式：无人链接且不在 nav 的页面
+    "lint.nav_coverage": True,                   # auto 模式：`.pages` 空 nav 隐藏的页面（可达性）
+    "lint.semantic": False,                      # 待确认/过期标记密度（默认关：较慢）
     "lint.ignore": [".tmp", "archive", "node_modules", ".git"],
     "export.llms_txt": False,
 }
@@ -155,7 +156,7 @@ def _too_new(pkg: str, cap: int) -> str | None:
 
 
 def cmd_check_deps(cfg, a):
-    auto = str(cfg.get("site.nav_mode", "manual")) == "auto"
+    auto = str(cfg["site.nav_mode"]) == "auto"
     deps = DEPS + (NAV_DEPS if auto else [])
     missing, bad = [], []
     for pkg in deps:
@@ -474,19 +475,37 @@ def _lint_links(root: Path, files: list[Path]) -> list[str]:
 #: 规范页永不进站，不需被链接——孤儿检查跳过
 _ORPHAN_SKIP = re.compile(r"^(AGENTS|CLAUDE)\.md$")
 
-#: 从 `mkdocs.yml` 的 nav 提取页面路径。两种写法都要认：
-#: `- 标题: 路径.md`（`_NAV_RE`）与 MkDocs 允许的裸形式 `- 路径.md`（`_NAV_BARE_RE`）。
+#: 从 `mkdocs.yml` 的 nav 提取页面路径。三种写法都要认：
+#: `- 标题: 路径.md`（`_NAV_RE`）、裸 `- 路径.md`（`_NAV_BARE_RE`）、
+#: 流式 `nav: [a.md, b.md]`（`_NAV_FLOW_RE`——只认 `nav` 与 `- 标题` 键，
+#: 免得把别的键的流式列表误当页目）。
 _NAV_RE = re.compile(r":\s*(\S+\.md)\s*$", re.M)
 _NAV_BARE_RE = re.compile(r"^\s*-\s+(\S+\.md)\s*$", re.M)
+_NAV_FLOW_RE = re.compile(r"^\s*(?:nav\s*|-\s+\S[^:]*)\s*:\s*\[(.*)\]\s*$", re.M)
+
+
+def _nav_flow_paths(text: str) -> set[str]:
+    out: set[str] = set()
+    for items in _NAV_FLOW_RE.findall(text):
+        for item in items.split(","):
+            item = item.strip().strip("\"'")
+            if item.endswith(".md"):
+                out.add(item)
+    return out
 
 
 def nav_paths(cfg: dict) -> set[str]:
-    """nav 里列出的页面路径（相对知识库根）——列出即算「被引用」。"""
+    """nav 里列出的页面路径（相对知识库根）——列出即算「被引用」。
+
+    判据取**召回优先**：多认几条只会少报几个孤儿，漏认则会把 nav 里明明列出的
+    页面报成孤儿（v0.1.1 的假报警就是这么来的）。
+    """
     f = cfg["_root"] / str(cfg["site.config"])
     if not f.exists():
         return set()
     text = f.read_text(encoding="utf-8")
-    return set(_NAV_RE.findall(text)) | set(_NAV_BARE_RE.findall(text))
+    return (set(_NAV_RE.findall(text)) | set(_NAV_BARE_RE.findall(text))
+            | _nav_flow_paths(text))
 
 
 def _lint_orphans(root: Path, files: list[Path], nav: set[str] | None = None) -> list[str]:
@@ -516,10 +535,14 @@ def _pages_empty_nav(pages: Path) -> bool:
 
 
 def _lint_nav(root: Path, cfg: dict) -> list[str]:
-    """导航可达性（P0-3）：`nav_mode=auto` 下「目录即导航」的前提是 `.pages` 不隐藏子项。
+    """导航可达性（P0-3）：**仅 `nav_mode=auto`**（由 `cmd_lint` 把关）。
 
-    只报**机械可判**的信号：`.pages` 里的空 `nav`（awesome-pages 会丢弃该目录全部子项）。
-    若是有意隐藏，正解是显式声明（或把目录加入 `lint.ignore`），而不是空 nav。
+    auto 下「目录即导航」的前提是 `.pages` 不隐藏子项。只报**机械可判**的信号：
+    `.pages` 里的空 `nav`（awesome-pages 会丢弃该目录全部子项）。若是有意隐藏，
+    正解是显式声明（或把目录加入 `lint.ignore`），而不是空 nav。
+
+    manual 模式**不跑**本检查：那时 `mkdocs.yml` 的 `nav` 才是真源，`.pages` 的空
+    nav 可能被 nav 覆盖，报它只会是噪声——那里的可达性由 `_lint_orphans` 守。
     """
     out: list[str] = []
     hidden: set[Path] = set()
@@ -573,26 +596,27 @@ def cmd_lint(cfg, a):
         problems += _lint_budget(root, cfg, max_children)
     if cfg["lint.broken_links"]:
         problems += _lint_links(root, files)
-    auto = str(cfg.get("site.nav_mode", "manual")) == "auto"
+    auto = str(cfg["site.nav_mode"]) == "auto"
+    # 孤儿检查与导航可达性检查**按 nav_mode 二选一**：auto 下「目录即导航」，
+    # 「孤儿」判据不适用；manual 下 mkdocs.yml 的 nav 才是真源，`.pages` 的空 nav
+    # 可能被 nav 覆盖，报它只会是噪声。两种模式下总有一条在守导航可达性。
+    semantic = bool(a.semantic or cfg["lint.semantic"])
     if cfg["lint.orphans"]:
         if auto:
-            # P4（结构即导航）：所有 md 默认进导航 ⇒「孤儿」判据不适用；
-            # 但「默认进导航」的前提是 .pages 不隐藏子项 —— 由下面的导航可达性检查兜住。
             print("· nav_mode=auto（P4）：孤儿检查不适用，改为导航可达性检查")
         else:
             problems += _lint_orphans(root, files, nav_paths(cfg))
     elif auto:
         print("· nav_mode=auto（P4）：孤儿检查已由配置关闭")
-    if cfg.get("lint.nav_coverage"):
+    if auto and cfg["lint.nav_coverage"]:
         problems += _lint_nav(root, cfg)
-    if auto:
         _nav_hint(cfg)
-    if a.semantic or cfg.get("lint.semantic"):
+    if semantic:
         problems += _lint_semantic(root, files)
     for p in problems:
         print(f"⚠ {p}")
     print(f"—— 扫描 {len(files)} 个 md / 问题 {len(problems)}"
-          f"{'（含语义层）' if (a.semantic or cfg.get('lint.semantic')) else ''}")
+          f"{'（含语义层）' if semantic else ''}")
     return 1 if problems else 0
 
 
