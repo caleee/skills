@@ -47,10 +47,22 @@ Claude Code skill 集合仓库（人类入口见 [`README.md`](README.md)）。�
 - 测试**不进发布包**（`git archive` 只打包 `<name>.md` + `<name>/`），故不受「skill 目录内仅放运行时依赖」约束
 - 改 CLI 实现时同步加测试——CI 用来拦 P0 级回归（历史教训：`deploy` 的 `NameError` 随着 3 个 Release 发出去而无人发现）
 
-## Plan 约束
+## 工作流水线
 
-- 复杂任务（≥3 步骤或用户明示“先规划/做大 plan”）先落 `.agents/plans/<业务>/NN-<slug>.md`（5 段骨架 + 进度表五态机 + 执行记录 + 验证段），并同步 `index.md`（按业务分节的极简列表）；`.claude/plans → ../.agents/plans` 仅作 Muse / Claude Code 兼容软链
-- `.agents/` 已在 `.gitignore`，plan 不入仓；小改原位留痕、大改另起新 plan 旧的移 `archived/<业务>/`
+> 判据见 `agent-pipeline` skill；**本段只写取值**。未列出的字段走该 skill 的最小默认（字段定义真源：`agent-pipeline/TEMPLATE.md`）。
+
+- **计划落点**：`.agents/plans/`，索引 `.agents/plans/index.md`（`.agents/` 已 gitignore，**计划不入仓**；`.claude/plans → ../.agents/plans` 仅作 Muse / Claude Code 兼容软链）
+- **决策台账**：无（本仓决策落 `docs/adr/`，非 append-only 台账）
+- **设计稿落点**：`docs/adr/`（架构决策）；`docs/<skill>/`（skill 参考文档）
+- **时间线**：无
+- **环境事实落点**：本文件
+- **门禁命令**：测试 `python3 -m unittest discover -s tests`；构建 无；文档 无
+- **质量轮触发**：按需
+- **审查基准**：该 skill 的最新 Release tag `<skill>-v<ver>`（＝上次对外发布的版本）
+- **报告落点**：`.agents/reviews/`（同样不入仓）
+- **红线**（托管模式同样不做）：
+  - **不手改 `<name>/VERSION`**——版本号由 `release-skill.yml` bump，手改会让文件与 tag 对不上
+  - **不 push、不打 tag、不 `workflow_dispatch` 发布**——发布是人的动作（Release body 常需人工补行为变更）
 
 ## 完成检查清单
 
