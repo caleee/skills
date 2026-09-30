@@ -96,18 +96,21 @@ user-invocable: true
 
 ## §7 项目声明段（`AGENTS.md`）
 
+> **只写本 skill 独有取值**；落库分流字段（决策台账／计划／设计稿／时间线）归
+> `agent-pipeline` 的 `## 工作流水线` 段——**两段职责不同，字段不重叠**。
+
 ```markdown
 ## 知识库
+
+> 判据见 `llm-wiki` skill；落库落点见「工作流水线」声明段。
 
 - 知识库根：`docs/`
 - 源层：`docs/raw/`
 - 出口层：`docs/dist/`
-- 决策台账：`docs/raw/decisions.md`（`D-NNN`）
-- 计划落点：`.agents/plans/` ＋ 索引 `index.md`
-- 设计稿：`docs/raw/design/`
-- 时间线：`docs/raw/agent-task-log.md`
-- 门禁：`tz docs --strict build`
-- 上锁文件：`decisions.md`／`plans/index.md`／`agent-task-log.md`／`mkdocs.yml`
+- 站点配置：`mkdocs.yml`；机器可读配置：`.llm-wiki.toml`
+- 目录预算：24（P1；`0` = 关闭）
+- 上锁文件：`mkdocs.yml`
+- 门禁：`tz docs --strict build`；体检：`tz docs lint`
 ```
 
 ## §8 落地检查清单

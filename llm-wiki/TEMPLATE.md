@@ -4,21 +4,24 @@
 
 ## 一、`AGENTS.md` 声明段
 
+> **只写本 skill 独有取值**。落库分流的落点（决策台账／计划／设计稿／时间线／环境事实）
+> **归 `agent-pipeline` 的 `## 工作流水线` 声明段**，本节**不重复**——两处都写＝双真源。
+
 ```markdown
 ## 知识库
+
+> 判据见 `llm-wiki` skill；落库落点见「工作流水线」声明段。
 
 - 知识库根：`docs/`
 - 源层：`docs/raw/`（不可变素材）
 - 出口层：`docs/dist/`（唯一对外面）
-- 决策台账：`docs/raw/decisions.md`（`D-NNN`，append-only、永不复用）
-- 计划落点：`.agents/plans/`，索引 `.agents/plans/index.md`
-- 设计稿落点：`docs/raw/design/`
-- 时间线：`docs/raw/agent-task-log.md`（一行式索引）
-- 上锁文件：`decisions.md`／`plans/index.md`／`agent-task-log.md`／`mkdocs.yml`
-- 门禁命令：`tz docs --strict build`
+- 站点配置：`mkdocs.yml`；机器可读配置：`.llm-wiki.toml`
+- 目录预算：24（P1；`0` = 关闭校验）
+- 上锁文件：`mkdocs.yml`（其余上锁文件见「工作流水线」）
+- 门禁：`tz docs --strict build`；体检：`tz docs lint`
 ```
 
-**字段含义**：`llmwiki` 与各 agent 只认这些**声明值**；未声明则走最小默认（`docs/` + `docs/raw/` + `docs/dist/`，无台账、无门禁）。
+**字段含义**：`llmwiki` 与各 agent 只认这些**声明值**；未声明则走最小默认（`docs/` + `docs/raw/` + `docs/dist/`，预算 24，无门禁）。
 
 ## 二、`.llm-wiki.toml`（项目根，可选）
 

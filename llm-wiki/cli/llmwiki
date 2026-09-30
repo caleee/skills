@@ -9,7 +9,8 @@
 用法：
   llmwiki check-deps                    校验 mkdocs 及插件（含主版本硬上限）
   llmwiki build [--strict]              构建站点
-  llmwiki serve [start|stop|status] [--full] [--port N]
+  llmwiki deploy [目录]                 构建（strict）并部署到目录
+  llmwiki serve [start|stop|status] [--full] [--with-dates] [--port N]
   llmwiki nav build                     由目录生成导航 .pages（落实 P4）
   llmwiki lint [--semantic] [--max N]   体检：目录预算 / 断链 / 孤儿 [＋语义]
   llmwiki drift                         上游仓演进 vs 我方分析篇的时差
@@ -138,9 +139,17 @@ def cmd_check_deps(cfg, a):
     return 0 if not missing and not bad else 1
 
 
-def _mkdocs_env(cfg: dict) -> dict:
+def _mkdocs_env(cfg: dict, with_dates: bool = True) -> dict:
+    """mkdocs 运行环境。
+
+    `DOCS_GIT_REVISION` 控制「最后更新日期」插件：**必须 unset 而不是传 \"false\"**
+    ——插件把值当字符串判真假，"false" 也会被当成开（实测坑）。
+    """
     env = dict(os.environ)
-    env.setdefault("DOCS_GIT_REVISION", "true")   # 产物带「最后更新日期」
+    if with_dates:
+        env["DOCS_GIT_REVISION"] = "true"
+    else:
+        env.pop("DOCS_GIT_REVISION", None)
     return env
 
 
@@ -154,6 +163,21 @@ def cmd_build(cfg, a):
     if rc != 0:
         die("构建失败", rc)
     print(f"已构建: {cfg['site.site_dir']}/")
+    return 0
+
+
+def cmd_deploy(cfg, a):
+    """构建（strict）并复制产物到目标目录。"""
+    dest = Path(a.dest or "/tmp/llmwiki-deploy")
+    cmd = [sys.executable, "-m", "mkdocs", "build", "-f", str(cfg["site.config"]), "--strict"]
+    print("构建中（strict）…", flush=True)
+    if subprocess.run(cmd, cwd=cfg["_root"], env=_mkdocs_env(cfg)).returncode != 0:
+        die("构建失败")
+    src = cfg["_root"] / str(cfg["site.site_dir"])
+    if dest.exists():
+        shutil.rmtree(dest)
+    shutil.copytree(src, dest)
+    print(f"✓ 已部署 {src} → {dest}")
     return 0
 
 
@@ -204,7 +228,7 @@ def cmd_serve(cfg, a):
     if not a.full:
         cmd.append("--dirty")                     # 增量：改一个 md ~0.2s
     log = open(f"/tmp/llmwiki-{cfg['_root'].name}.log", "w")
-    child = subprocess.Popen(cmd, cwd=cfg["_root"], env=_mkdocs_env(cfg),
+    child = subprocess.Popen(cmd, cwd=cfg["_root"], env=_mkdocs_env(cfg, with_dates=a.with_dates),
                              stdout=log, stderr=subprocess.STDOUT)
     _pidfile(cfg).write_text(str(child.pid))
     print(f"启动中… 首次构建约 10–40s（日志 {log.name}）")
@@ -432,9 +456,12 @@ def main(argv=None) -> int:
     p = sub.add_parser("build"); p.add_argument("--strict", action="store_true")
     p.set_defaults(fn=cmd_build)
 
+    p = sub.add_parser("deploy"); p.add_argument("dest", nargs="?"); p.set_defaults(fn=cmd_deploy)
+
     p = sub.add_parser("serve")
     p.add_argument("action", nargs="?", choices=["start", "stop", "status"], default="start")
     p.add_argument("--full", action="store_true", help="全量构建（增删页/改 nav 后用）")
+    p.add_argument("--with-dates", action="store_true", help="预览时也启用最后更新日期（慢）")
     p.add_argument("--port", type=int)
     p.set_defaults(fn=cmd_serve)
 
