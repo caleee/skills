@@ -9,10 +9,13 @@ CLI 本体是没有 `.py` 后缀的单文件（`llm-wiki/cli/llmwiki`），用 `
 """
 from __future__ import annotations
 
+import argparse
 import contextlib
 import importlib.machinery
 import importlib.util
 import io
+import os
+import re
 import tempfile
 import unittest
 from argparse import Namespace
@@ -20,6 +23,10 @@ from pathlib import Path
 from unittest import mock
 
 CLI = Path(__file__).resolve().parents[1] / "llm-wiki" / "cli" / "llmwiki"
+SKILL_MD = CLI.parents[1] / "SKILL.md"
+AGENT_MD = CLI.parents[1] / "AGENT.md"
+TEMPLATE_MD = CLI.parents[1] / "TEMPLATE.md"
+ROOT_MD = CLI.parents[2] / "llm-wiki.md"
 
 
 def _load_cli():
@@ -207,7 +214,8 @@ class TestDeploy(Fixture):
     def test_build_failure_leaves_dest_untouched(self):
         out = self.root / "out"
         with mock.patch.object(wiki.subprocess, "run", lambda *a, **k: mock.Mock(returncode=2)):
-            with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit), contextlib.redirect_stdout(io.StringIO()), \
+                    contextlib.redirect_stderr(io.StringIO()):
                 wiki.cmd_deploy(self.cfg, self._ns(str(out)))
         self.assertFalse(out.exists())
 
@@ -224,6 +232,122 @@ class TestWiring(Fixture):
     def test_check_deps_requires_awesome_pages_only_in_auto(self):
         self.assertIn("mkdocs-awesome-pages-plugin", wiki.NAV_DEPS)
         self.assertNotIn("mkdocs-awesome-pages-plugin", wiki.DEPS)
+
+
+# ─────────────── M9 · find_root 分轮定位 ───────────────
+class TestFindRoot(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name).resolve()
+        (self.root / "mkdocs.yml").write_text("site_name: t\n", encoding="utf-8")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_embedded_repo_with_git_does_not_win(self):
+        embedded = self.root / "vendor" / "sub"
+        (embedded / ".git").mkdir(parents=True)
+        self.assertEqual(wiki.find_root(embedded), self.root,
+                         "monorepo 内嵌小仓（有 .git 无配置）不得盖过外层站点配置")
+
+    def test_config_above_beats_nearer_git(self):
+        (self.root / ".llm-wiki.toml").write_text("[site]\n", encoding="utf-8")
+        near = self.root / "a" / "b"
+        (near / ".git").mkdir(parents=True)
+        self.assertEqual(wiki.find_root(near), self.root)
+
+    def test_nearer_config_wins(self):
+        (self.root / ".llm-wiki.toml").write_text("[site]\n", encoding="utf-8")
+        near = self.root / "a"
+        near.mkdir()
+        (near / ".llm-wiki.toml").write_text("[site]\n", encoding="utf-8")
+        self.assertEqual(wiki.find_root(near), near)
+
+    def test_env_var(self):
+        (self.root / "docs").mkdir()
+        with mock.patch.dict(os.environ, {"LLMWIKI_ROOT": str(self.root / "docs")}):
+            self.assertEqual(wiki._root_from_env(), (self.root / "docs").resolve())
+
+    def test_env_var_missing_dir_dies(self):
+        with mock.patch.dict(os.environ, {"LLMWIKI_ROOT": str(self.root / "nope")}):
+            with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+                wiki._root_from_env()
+
+    def test_env_var_makes_main_skip_search(self):
+        (self.root / "docs").mkdir()
+        (self.root / "docs" / "a.md").write_text("# A\n", encoding="utf-8")
+        with mock.patch.dict(os.environ, {"LLMWIKI_ROOT": str(self.root)}), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(wiki.main(["lint"]), 0)
+
+
+# ─────────────── M8 · 两个假配置接线 ───────────────
+class TestConfigWiring(Fixture):
+    def test_theme_map_defaults_and_override(self):
+        self.assertEqual(wiki._pdf_theme_map({}), wiki.PDF_THEME_MAP)
+        merged = wiki._pdf_theme_map({"pdf.theme_map.monokai-warm": "light"})
+        self.assertEqual(merged["monokai-warm"], "light")
+        self.assertEqual(merged["dracula-soft"], "dark")
+
+    def test_theme_map_survives_flatten(self):
+        (self.root / ".llm-wiki.toml").write_text(
+            '[pdf.theme_map]\n"monokai-warm" = "light"\n', encoding="utf-8")
+        cfg = wiki.load_cfg(self.root)
+        self.assertIn("pdf.theme_map.monokai-warm", cfg, "flatten 会把 pdf.theme_map 摊成前缀键")
+        self.assertEqual(wiki._pdf_theme_map(cfg)["monokai-warm"], "light")
+
+    def test_export_default_from_config(self):
+        self.md("a.md", "# A\n")
+        self.cfg["export.llms_txt"] = True
+        code, _ = self.run_cli(wiki.cmd_export, Namespace(llms_txt=False, out=None))
+        self.assertEqual(code, 0)
+        self.assertTrue((self.root / "docs" / "llms.txt").exists())
+
+    def test_export_off_by_default_is_noop(self):
+        self.md("a.md", "# A\n")
+        code, _ = self.run_cli(wiki.cmd_export, Namespace(llms_txt=False, out=None))
+        self.assertEqual(code, 0)
+        self.assertFalse((self.root / "docs" / "llms.txt").exists())
+
+
+# ─────────────── M5 / M7 · 文档 ↔ 实现契约 ───────────────
+class TestDocContract(unittest.TestCase):
+    FORBIDDEN = ("跨页矛盾", "过时断言", "CLI 读配置的顺序", "只认这些声明值", "(级别, 说明)")
+
+    def _subparsers(self) -> dict:
+        ap = wiki.build_parser()
+        sub = next(a for a in ap._actions if isinstance(a, argparse._SubParsersAction))
+        return sub.choices
+
+    def test_command_table_matches_parser(self):
+        table = re.findall(r"^\|\s*`llmwiki\s+([a-z][a-z-]*)",
+                           SKILL_MD.read_text(encoding="utf-8"), re.M)
+        self.assertTrue(table, "SKILL.md §6 命令表解析失败")
+        self.assertEqual(set(self._subparsers()), set(table))
+
+    def test_documented_flags_exist(self):
+        flags = {o for a in self._subparsers()["deploy"]._actions for o in a.option_strings}
+        self.assertIn("--force", flags)
+        flags = {o for a in self._subparsers()["nav"]._actions for o in a.option_strings}
+        self.assertIn("--dry-run", flags)
+
+    def test_template_documents_every_lint_key(self):
+        text = TEMPLATE_MD.read_text(encoding="utf-8")
+        for key in (k.split(".", 1)[1] for k in wiki.DEFAULTS if k.startswith("lint.")):
+            self.assertRegex(text, rf"(?m)^{key}\s*=", f"TEMPLATE.md 未记录 lint.{key}")
+
+    def test_no_stale_promises(self):
+        blob = "\n".join(p.read_text(encoding="utf-8")
+                         for p in (SKILL_MD, AGENT_MD, TEMPLATE_MD, ROOT_MD))
+        for phrase in self.FORBIDDEN:
+            self.assertNotIn(phrase, blob, f"文档残留已失真的表述：{phrase}")
+
+    def test_root_doc_description_matches_skill_frontmatter(self):
+        def desc(path: Path) -> str:
+            m = re.search(r"(?m)^description:\s*(.+)$", path.read_text(encoding="utf-8"))
+            assert m is not None
+            return m.group(1).strip()
+        self.assertEqual(desc(ROOT_MD), desc(SKILL_MD))
 
 
 if __name__ == "__main__":

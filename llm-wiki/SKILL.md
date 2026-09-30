@@ -1,6 +1,6 @@
 ---
 name: llm-wiki
-description: 知识库体系与文档站工具链 — 三层模型（源/编译/出口）· 目录预算四理念 · 落库分流 · 语义 lint 与漂移检测 · 站点 CLI
+description: 知识库体系与文档站工具链 — 三层模型（源/编译/出口）· 目录预算四理念 · 落库分流 · 导航可达性与标记密度体检 · 漂移检测 · 站点 CLI
 user-invocable: true
 ---
 
@@ -66,7 +66,7 @@ user-invocable: true
 |---|---|---|
 | **ingest** | 新素材入源层 → 提炼进编译层 → 更新索引 ＋ 追加时间线一行 | 每次有新素材 |
 | **query** | 对编译层提问 → 综合回答；**回答中可复用的部分回填成新页面** | 随时 |
-| **lint** | 体检：断链／孤儿页／目录超预算／过时断言／跨页矛盾 | 收尾、定期 |
+| **lint** | 体检：断链／孤儿页／目录超预算／导航可达性／待确认·过期标记密度 | 收尾、定期 |
 
 **query 回填**是这套体系与「对话即弃」的根本差别：想明白了的东西要**落成页面**，否则等于没想。
 
@@ -83,16 +83,19 @@ user-invocable: true
 
 | 命令 | 作用 | 依赖 |
 |---|---|---|
-| `llmwiki check-deps` | 校验 mkdocs 及插件（含主版本硬上限） | — |
+| `llmwiki check-deps` | 校验 mkdocs 及插件（含主版本硬上限；`nav_mode=auto` 时含 awesome-pages） | — |
 | `llmwiki build [--strict]` | 构建站点（strict＝警告即失败） | mkdocs |
+| `llmwiki deploy [目录] [--force]` | 构建（strict）并部署到目录（默认 `<项目根>/dist`） | mkdocs |
 | `llmwiki serve start/stop/status [--full]` | 本地预览（默认增量） | mkdocs |
-| `llmwiki nav build` | **由目录生成导航**（`.pages`），落实 P4 | — |
-| `llmwiki lint [--semantic]` | P1 目录预算／断链／孤儿页（`nav_mode=auto` 时孤儿检查自动跳过——导航已含全部页面）；`--semantic` 加过时断言与跨页矛盾 | — |
+| `llmwiki nav build [--dry-run]` | **由目录生成导航**（`.pages`），落实 P4；只增改 `title`、清掉空 `nav` | — |
+| `llmwiki lint [--semantic]` | P1 目录预算／断链／导航可达性（`nav_mode=auto` 时以可达性检查替代孤儿检查）；`--semantic` 加待确认·过期标记密度 | — |
 | `llmwiki drift` | 上游仓（如被调研代码）演进 vs 我方分析篇的**时差** | git |
-| `llmwiki export --llms-txt` | 生成 AI 可消费出口 | — |
+| `llmwiki export [--llms-txt] [--out F]` | 生成 AI 可消费出口 | — |
 | `llmwiki pdf <src> <out> <stem>` | mermaid 转 PNG 中转（供 md→pdf） | mmdc |
 
-**配置**：项目根 `.llm-wiki.toml`（端口、目录映射、模板）。无配置时用最小默认。
+> **旗标以 `llmwiki <cmd> --help` 为准**——上表只给常用形态；逐条罗列会与实现漂移。
+
+**配置**：项目根 `.llm-wiki.toml`（端口、目录映射、lint 开关、drift watch、pdf 主题映射）。无配置时用最小默认。
 
 ## §7 项目声明段（`AGENTS.md`）
 

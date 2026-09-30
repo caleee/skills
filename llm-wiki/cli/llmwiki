@@ -16,6 +16,10 @@
   llmwiki drift                         上游仓演进 vs 我方分析篇的时差
   llmwiki export [--llms-txt] [--out F] 生成 AI 可消费出口
   llmwiki pdf <src> <outdir> <stem>     mermaid → PNG 中转（供 md→pdf）
+
+项目根定位顺序：`--root` → `LLMWIKI_ROOT` 环境变量 → 向上自动查找。
+自动查找按标记**分轮**（`.llm-wiki.toml` → `mkdocs.yml` → `.git`），避免 monorepo
+内嵌小仓里锁错根（详 `find_root()`）。
 """
 from __future__ import annotations
 
@@ -57,11 +61,18 @@ MAX_MAJOR = {"mkdocs": 1}
 
 # ─────────────────────────── 配置与项目定位 ───────────────────────────
 def find_root(start: Path | None = None) -> Path:
-    """向上找项目根：有 `.llm-wiki.toml` / `mkdocs.yml` / `.git` 的最近一层。"""
+    """向上找项目根，按标记类型**分轮**扫描（近的弱标记不得盖过远的强标记）。
+
+    轮次：① `.llm-wiki.toml`（显式配置）② `mkdocs.yml`（站点配置）③ `.git`（最后手段）。
+    分轮而非「三者任一即返回」，是为了比赛 monorepo 内嵌小仓：内嵌仓有 `.git` 但
+    通常无配置，若与 `mkdocs.yml` 同权，在小仓子目录里执行就会锁到小仓、静默用错配置。
+    """
     cur = (start or Path.cwd()).resolve()
-    for d in [cur, *cur.parents]:
-        if any((d / f).exists() for f in (".llm-wiki.toml", "mkdocs.yml", ".git")):
-            return d
+    candidates = [cur, *cur.parents]
+    for marker in (".llm-wiki.toml", "mkdocs.yml", ".git"):
+        for d in candidates:
+            if (d / marker).exists():
+                return d
     return cur
 
 
@@ -89,6 +100,17 @@ def load_cfg(root: Path, cli_port: int | None = None) -> dict:
     if cli_port:
         cfg["site.port"] = cli_port
     return cfg
+
+
+def _root_from_env() -> Path | None:
+    """`LLMWIKI_ROOT` 环境变量（可在脚本／多仓目录里显式钉死项目根）。"""
+    env = os.environ.get("LLMWIKI_ROOT")
+    if not env:
+        return None
+    p = Path(env).expanduser()
+    if not p.is_dir():
+        die(f"LLMWIKI_ROOT 指向的目录不存在：{p}")
+    return p.resolve()
 
 
 def docs_dir(cfg: dict) -> Path:
@@ -524,9 +546,10 @@ def _nav_hint(cfg: dict) -> None:
 
 
 def _lint_semantic(root: Path, files: list[Path]) -> list[str]:
-    """语义层（启发式）：过时标记、疑似矛盾。
+    """语义层（启发式）：**待确认/过期标记密度**。
 
-    判据刻意保守——只报**机械可判**的信号，避免噪声。
+    判据刻意保守——只报**机械可判**的信号，避免噪声。此处**不做**跨页一致性检测
+    （那需语义理解，机械判必出误报）；「语义」仅指「非结构类信号」。
     """
     out = []
     stale_re = re.compile(r"(待确认|TODO|FIXME|过期|已失效|待补)", re.I)
@@ -611,8 +634,8 @@ def cmd_drift(cfg, a):
 def cmd_export(cfg, a):
     root = docs_dir(cfg)
     files = _collect_md(root, cfg)
-    if not a.llms_txt:
-        print("（未指定出口格式；试试 --llms-txt）")
+    if not (a.llms_txt or cfg["export.llms_txt"]):
+        print("（未指定出口格式；试试 --llms-txt，或在 .llm-wiki.toml 置 export.llms_txt = true）")
         return 0
     lines = [f"# {cfg['_root'].name}", ""]
     for f in files:
@@ -627,8 +650,19 @@ def cmd_export(cfg, a):
 PDF_THEME_MAP = {"monokai-warm": "dark", "dracula-soft": "dark"}
 
 
+def _pdf_theme_map(cfg: dict) -> dict:
+    """默认映射 ＋ `.llm-wiki.toml` 覆盖（配置优先）。
+
+    注意 `flatten()` 会把 `[pdf.theme_map]` 摊成 `pdf.theme_map.<name>` **前缀键**，
+    所以这里做前缀扫描而不是整键取值——否则配置永远读不到。
+    """
+    cfg_map = {k[len("pdf.theme_map."):]: v
+               for k, v in cfg.items() if k.startswith("pdf.theme_map.")}
+    return {**PDF_THEME_MAP, **cfg_map}
+
+
 def cmd_pdf(cfg, a):
-    theme = a.mermaid_theme or PDF_THEME_MAP.get(a.pdf_theme, "default")
+    theme = a.mermaid_theme or _pdf_theme_map(cfg).get(a.pdf_theme, "default")
     out = Path(a.outdir)
     out.mkdir(parents=True, exist_ok=True)
     text = Path(a.src).read_text(encoding="utf-8")
@@ -651,9 +685,10 @@ def cmd_pdf(cfg, a):
 
 
 # ─────────────────────────── 入口 ───────────────────────────
-def main(argv=None) -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """命令面真源——`SKILL.md` §6 的命令表以它为准（测试双向断言）。"""
     ap = argparse.ArgumentParser(prog="llmwiki", description="知识库体系与文档站 CLI")
-    ap.add_argument("--root", help="项目根（默认向上自动查找）")
+    ap.add_argument("--root", help="项目根（默认依次取 LLMWIKI_ROOT、向上自动查找）")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("check-deps").set_defaults(fn=cmd_check_deps)
@@ -690,8 +725,12 @@ def main(argv=None) -> int:
     p.add_argument("--pdf-theme", default=""); p.add_argument("--mermaid-theme", default="")
     p.set_defaults(fn=cmd_pdf)
 
-    a = ap.parse_args(argv)
-    root = Path(a.root).resolve() if a.root else find_root()
+    return ap
+
+
+def main(argv=None) -> int:
+    a = build_parser().parse_args(argv)
+    root = (Path(a.root).expanduser().resolve() if a.root else (_root_from_env() or find_root()))
     return a.fn(load_cfg(root, getattr(a, "port", None)), a) or 0
 
 

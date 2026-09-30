@@ -21,7 +21,7 @@
 - 门禁：`tz docs --strict build`；体检：`tz docs lint`
 ```
 
-**字段含义**：`llmwiki` 与各 agent 只认这些**声明值**；未声明则走最小默认（`docs/` + `docs/raw/` + `docs/dist/`，预算 24，无门禁）。
+**字段含义**：这条声明段是给 **agent／人**读的**自然语言取值**；**CLI 本身不读** `AGENTS.md`（它只读 `.llm-wiki.toml` 与命令行参数）。未声明则走最小默认（`docs/` + `docs/raw/` + `docs/dist/`，预算 24，无门禁）。
 
 ## 二、`.llm-wiki.toml`（项目根，可选）
 
@@ -36,8 +36,14 @@ nav_mode = "auto"          # auto=由目录生成 .pages(P4) | manual=用 mkdocs
 [lint]
 max_children = 24          # P1 目录预算；0 = 关闭
 broken_links = true
-orphans = true
+orphans = true             # 孤儿页（`nav_mode=auto` 时自动替换为导航可达性检查）
+nav_coverage = true        # 导航可达性：报出 `.pages` 空 nav 隐藏的页面（独立开关）
 semantic = false           # 默认关（较慢）；`llmwiki lint --semantic` 可临时开
+ignore = [".tmp", "archive", "node_modules", ".git"]
+# `ignore` 有两类语义（命中即跳过）：
+#   单段名（如 archive）      → 出现在路径任一层即跳过
+#   子路径前缀（如 raw/asset） → 该前缀及其下全部跳过
+# 用途：P1 只管「编译层的可读文档」；源层素材（原始导出／单据／截图集）不该计入预算。
 
 [drift]
 # 上游仓 → 我方分析篇（`llmwiki drift` 比对 git 落笔时差）
@@ -46,10 +52,10 @@ semantic = false           # 默认关（较慢）；`llmwiki lint --semantic` �
 # analysis = "docs/pm-code-analysis/components/pm-contract"
 
 [export]
-llms_txt = false           # `llmwiki export --llms-txt` 的默认开关
+llms_txt = false           # 默认是否导出；true 时 `llmwiki export` 不传旗标也导出
 
 [pdf]
-# mermaid → PNG 中转时使用的主题映射（深色纸面用 dark）
+# mermaid → PNG 中转时的主题映射；与内置默认**合并**，同名键以本配置为准
 [pdf.theme_map]
 "monokai-warm" = "dark"
 "dracula-soft" = "dark"

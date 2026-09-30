@@ -39,13 +39,16 @@ llm-wiki/
 └── cli/llmwiki   CLI：stdlib-only 判据类 + 调用 mkdocs 的构建类
 ```
 
-- **CLI 读配置的顺序**：命令行参数 → `.llm-wiki.toml` → `AGENTS.md` 声明段 → 最小默认。
-- **CLI 不写项目文件**（除 `nav build` 生成的 `.pages` 与 `build` 产物）。
+- **配置有两条互不代替的读取路径**（判据见 `docs/adr/0005-llm-wiki.md` 决策表）：
+  - **CLI（机器值）**：命令行参数 → `.llm-wiki.toml` → 内置默认。`AGENTS.md` 的声明段**不参与**。
+  - **agent／人（自然语言）**：`AGENTS.md` 的 `## 知识库` 声明段 ＋ `.llm-wiki.toml`。
+  - 项目根定位：`--root` → `LLMWIKI_ROOT` 环境变量 → 向上按 `.llm-wiki.toml` → `mkdocs.yml` → `.git` **分轮**查找。
+- **CLI 写项目文件仅在三处**：`nav build` 的 `.pages`、`build` 的站点产物、`export` 的 `llms.txt`（`--out` 可改）。`deploy` 只写你指定的目标目录（含 `.llmwiki-deploy` 标记）。
 
 ## 扩展点
 
-- **新增 lint 规则**：在 `cli/llmwiki` 的 `cmd_lint` 内加检查函数，返回 `(级别, 说明)` 列表；规则须**机械可判**（有明确判据），语义类归 `--semantic`。
-- **新增 nav 生成器**：`cmd_nav_build` 的 `render_pages(directory)`——默认产出 MkDocs `awesome-pages` 的 `.pages`。
+- **新增 lint 规则**：在 `cli/llmwiki` 加 `_lint_xxx(root, cfg) -> list[str]`，返回**已带 `[标签]` 前缀的字符串**（`cmd_lint` 只做拼接与计数）；规则须**机械可判**（有明确判据），启发式类归 `--semantic`。
+- **新增 nav 生成器**：改 `render_pages(directory: Path) -> str | None`——返回值是 `.pages` 应写入的内容，`None` ＝ **不写盘**（该目录无需 `.pages`）；当前实现只增改顶层 `title`、只删空 `nav`，其余键原样保留（`nav build` 调它并负责写/删）。
 - **新增站点后端**：目前仅 MkDocs；若换后端，替换 `build`/`serve` 的实现，判据层不动。
 
 ## 与其它 skill 的边界

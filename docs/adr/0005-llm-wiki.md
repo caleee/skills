@@ -15,7 +15,7 @@ tenant 仓积累了成熟的知识库治理实践（三层模型、落库分流�
 **建立 `llm-wiki` skill**，三部分：
 
 1. **判据层**（`SKILL.md`）：三层模型（源/编译/出口）· 目录四理念（P1–P4）· 落库分流（五类真源）· 三操作（ingest/query/lint）· 多写者治理。
-2. **CLI**（`cli/llmwiki`）：`check-deps` / `build` / `serve` / `nav build` / `lint` / `drift` / `export` / `pdf`。
+2. **CLI**（`cli/llmwiki`）：`check-deps` / `build` / `deploy` / `serve` / `nav build` / `lint` / `drift` / `export` / `pdf`。
 3. **模板**（`TEMPLATE.md`）：项目 `## 知识库` 声明段 ＋ `.llm-wiki.toml`。
 
 **四个关键取舍**：
