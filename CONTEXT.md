@@ -34,11 +34,14 @@
 | **目录四理念（P1–P4）** | P1 目录预算 ≤24 · P2 增长轴被有界轴包夹 · P3 分组轴真实语义化 · P4 结构即导航 | — |
 | **落库分流** | 五类性质各归唯一落点：决策／范围／机制／时间线／环境事实，禁重复记 | 分类存储（泛称） |
 | **`.llm-wiki.toml`** | 项目根的**机器可读**配置（端口/目录/预算/drift watch）；与 `AGENTS.md` 的 `## 知识库`（自然语言）声明段配套 | — |
+| **office-docs（办公文档）** | 管办公文档**内容轴**的 skill：PPTX 零依赖定点编辑（只改目标字节、可 diff 回填）／XLSX 读取与 md→xlsx。**判据来自 skill，基线取值来自项目 `## 办公文档` 声明段 ＋ `.office-docs.toml`** | 汇报材料编辑（泛称） |
+| **ref（office-docs 寻址）** | PPTX 内定位单元的坐标语法（`slide2!sp[3]`／`slide2!tbl0.r1.c2`／`.p0`）；序号与 `dump` 一致，坐标一律 pt | 位置引用（易与行号混） |
+| **`.office-docs.toml`** | 项目根的**机器可读**配置（只读模板基线目录）；与 `AGENTS.md` 的 `## 办公文档`（自然语言）声明段配套 | — |
 
 ## 边界与引用
 
 - **正文归属**：判据只在各 skill 的 `SKILL.md`（单一真源）；本仓文档**不复述判据**，只写取值与指针。历史两次踩坑都是复述：全局路由行内联阈值（`MT-145`）、本仓 `## Plan 约束` 内联 plan-persist 的阈值与骨架（2026-09-30 已收拢为指针）。
-- **声明段**：项目 `AGENTS.md` 只写声明段——`## 工作流水线`（agent-pipeline：落点/命令/红线，模板见 `agent-pipeline/TEMPLATE.md`）与 `## 知识库`（llm-wiki：知识库取值，模板见 `llm-wiki/TEMPLATE.md`）；机器可读值写 `.llm-wiki.toml`。
+- **声明段**：项目 `AGENTS.md` 只写声明段——`## 工作流水线`（agent-pipeline：落点/命令/红线，模板见 `agent-pipeline/TEMPLATE.md`）与 `## 知识库`（llm-wiki：知识库取值，模板见 `llm-wiki/TEMPLATE.md`）、`## 办公文档`（office-docs：基线取值，模板见 `office-docs/TEMPLATE.md`）；机器可读值写 `.llm-wiki.toml`／`.office-docs.toml`。
 - **本仓取值**：见根 `AGENTS.md` 的 `## 工作流水线` 段。
 
 ## 采纳

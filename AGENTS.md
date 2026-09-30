@@ -17,6 +17,7 @@ Claude Code skill 集合仓库（人类入口见 [`README.md`](README.md)）。�
 | agent-doctor | `agent-doctor.md` | `agent-doctor/` | 本机多 agent 能力自检 — 全局指令/扩展加载/MCP/软链/hooks/密钥 |
 | agent-pipeline | `agent-pipeline.md` | `agent-pipeline/` | 跨 agent 工作流水线编排 — 七环闸门/中途接入/多计划串行与上下文卫生/无人值守托管 |
 | llm-wiki | `llm-wiki.md` | `llm-wiki/` | 知识库体系与文档站工具链 — 三层模型/目录四理念/落库分流/lint·drift·nav CLI |
+| office-docs | `office-docs.md` | `office-docs/` | 办公文档零依赖定点编辑 — PPTX 文字/形状/表格/连线/图片精确改 · XLSX 读取与 md→xlsx · 只读模板基线 |
 
 ## 文档层次（agent 视角）
 

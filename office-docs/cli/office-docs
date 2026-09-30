@@ -1,0 +1,2753 @@
+#!/usr/bin/env python3
+"""office-docs — 办公文档（PPTX/XLSX）零依赖定点编辑 CLI（`office-docs` skill）
+
+判据见 ../SKILL.md；项目配置见项目根 `.office-docs.toml`（模板见 ../TEMPLATE.md）。
+
+把 tenant `tz report` 域的通用能力抽成本 skill：**PPTX** 只改目标 `<a:t>` 文本字节、其余
+zip 条目逐字保留（改动可 diff、可回填 md）；**XLSX** 零依赖读（值＋样式＋合并＋尺寸）与
+md 管道表格 → xlsx。**stdlib-only**（`pptx check --render` 可选调用本机 PowerPoint 做自证）。
+
+用法：
+  office-docs [--root DIR] [--baseline-dir DIR] [--json] [--dry-run] <pptx|xlsx> <子命令> [参数]
+  （cwd 不在项目根时用 `--root` 钉死；子命令细节见 `office-docs <域> --help`）
+
+项目根定位顺序：`--root` → `OFFICE_DOCS_ROOT` 环境变量 → 向上查找 `.office-docs.toml` → `.git`。
+只读模板基线由 `.office-docs.toml` 的 `[baseline] dir`（默认 `docs/report/template`）指定；
+就地对基线改写需 `--force`，`--out` 另存不受限。
+"""
+from __future__ import annotations
+
+import datetime as _dt
+import json
+import os
+import re
+import shutil
+import struct
+import subprocess
+import sys
+import tempfile
+import unicodedata
+import zipfile
+from pathlib import Path
+from xml.etree import ElementTree as ET
+
+try:
+    import tomllib
+except ModuleNotFoundError:                      # pragma: no cover
+    tomllib = None
+
+#: 运行期配置（`main()` 填充）：`root`＝项目根，`baseline`＝只读基线目录绝对路径（None＝无护栏）
+CFG: dict = {"root": None, "baseline": None}
+
+DEFAULTS = {"baseline": "docs/report/template"}
+
+
+def _find_root(start: Path | None = None) -> Path:
+    """向上找项目根：`.office-docs.toml` → `.git` → 起点。"""
+    cur = (start or Path.cwd()).resolve()
+    for marker in (".office-docs.toml", ".git"):
+        for d in [cur, *cur.parents]:
+            if (d / marker).exists():
+                return d
+    return cur
+
+
+def _load_baseline(root: Path, cli_baseline: str | None) -> str | None:
+    """解析只读基线目录 → 绝对路径；空串／`-` ＝ 不设护栏。
+
+    取值优先级：`--baseline-dir` → `OFFICE_DOCS_BASELINE` → `.office-docs.toml` 的
+    `[baseline] dir` → 内置默认 `docs/report/template`。相对路径相对项目根解析。
+    """
+    val = cli_baseline if cli_baseline is not None else os.environ.get("OFFICE_DOCS_BASELINE")
+    if val is None:
+        f = root / ".office-docs.toml"
+        if f.exists() and tomllib is not None:
+            val = (tomllib.loads(f.read_text(encoding="utf-8")).get("baseline") or {}).get("dir")
+    if val is None:
+        val = DEFAULTS["baseline"]
+    if not val or val == "-":
+        return None
+    p = Path(val).expanduser()
+    return str((p if p.is_absolute() else root / p).resolve())
+
+
+class Context:
+    """执行上下文：全局标志（`--json` 机器可读输出／`--dry-run` 写操作只预演）。"""
+
+    def __init__(self, json_mode: bool, dry_run: bool):
+        self.json = json_mode
+        self.dry_run = dry_run
+
+
+USAGE = """用法：
+  office-docs [--root DIR] [--baseline-dir DIR] [--json] [--dry-run] <pptx|xlsx> <子命令> [参数]
+
+  office-docs pptx ...（下方）
+  office-docs xlsx dump  <file> [--sheet <显示名> | --index N] [--all] [--json]   工作表结构（值＋样式摘要＋合并）
+  office-docs xlsx from-md <源.md> --out <目标.xlsx> [--table N] [--sheet <名>] [--list] [--force]
+                          md 管道表格 → xlsx（表头加粗＋冻结首行；--list 只列表格不生成）
+
+pptx 子命令：
+  office-docs pptx dump  <file> [--json]                  结构清单（形状／表格单元格＋ref）
+  office-docs pptx find  <file> <文本> [--json]           按文本找 ref
+  office-docs pptx set   <file> --at <ref> --text <文本> [--run N] [--merge] [--out <file>] [--dry-run] [--force]
+  office-docs pptx diff  <旧.pptx> <新.pptx> [--json]      文字级差异（回填 md 用）
+  office-docs pptx media     <file> [--json]                  媒体清单（图、大、被哪页引用）
+  office-docs pptx put-image <file> --at <imageN.png> --from <源图> [--out <file>] [--force]
+  office-docs pptx check <file> [--render] [--render-out <pdf>] [--json]
+                          结构自检；--render 另用本机 PowerPoint 打开并导出 PDF（Office 自证）
+  office-docs pptx add-table <file> --from <xlsx> --range <区域> [--sheet <名> | --index N] [--slide N]
+                           [--at x,y] [--size w,h] [--out <file>]   把 xlsx 区域搬成原生表格（带样式）
+  office-docs pptx add-slide <file> [--layout N] [--out <file>]     末尾新增一页空白页
+  office-docs pptx del-shape <file> --at <ref> [--out <file>]      删形状／表格／图片（slideN!sp[i]／gf[i]／pic[i]）
+  office-docs pptx move-shape <file> --at <ref> [--to x,y | --by dx,dy] [--out <file>]   移动（排期图的时间移动）
+  office-docs pptx copy-shape <file> --at <ref> [--text ""] [--to x,y] [--to-slide N] [--out <file>]   克隆模块（可跨页）
+  office-docs pptx resize <file> --at <ref> [--size w,h] [--out <file>]             改形状尺寸（拼图用）
+  office-docs pptx add-shape <file> --slide N --at x,y --size w,h --text "" [--kind roundRect] [--fill #xxx] [--font-color #xxx] [--dash dash] [--anchor t|ctr|b] [--align l|ctr|r] [--bold]
+  office-docs pptx add-connector <file> --slide N --from x,y --to x,y [--style straight|elbow|curve] [--no-arrow] [--color #xxx]
+  office-docs pptx reorder <file> --at <ref> --to back|front [--out <file>]         调 z-order（表放底层，模块才看得见）
+  office-docs pptx add-row <file> --at <slideN!tbl{i}> [--count N] [--out <file>]   表格末尾加行（克隆末行，高同步长）
+  office-docs pptx del-slide <file> --at <slideN> [--out <file>]                   删整页（同步清 sldIdLst／分节／rels）
+  office-docs pptx fill-table <file> --at <slideN!tbl{i}> --from <tsv> [--start-row N] [--out <file>]
+                         批量写整表单元格（TSV：行＝表格行、列＝单元格；一次落盘）
+  office-docs pptx del-row <file> --at <slideN!tbl{i}> [--count N] [--out <file>]   表格末尾删行（高同步减）
+  office-docs pptx row-height <file> --at <slideN!tbl{i}> --pt <行高> [--out <file>]  统一行高并同步表高（防超页被裁）
+  office-docs pptx font-size  <file> --at <slideN!tbl{i}> --pt <字号> [--out <file>]  统一表内字号（压回页内，行高无效）
+
+ref 语法：slide2!tbl0.r1.c2（表格单元格）／slide1!sp[2]（形状）／可加 .p0 指段落。
+set 默认就地写回并备份 <名>.bak.pptx；多 run 段落须显式 --run N 或 --merge。
+只读模板基线（默认 docs/report/template，见 .office-docs.toml）：就地改写需 --force（--out 另存不受限）。"""
+
+
+def _split_globals(argv: list[str]) -> tuple[str | None, str | None, bool, bool, list[str]]:
+    """抽走全局标志：`--root`/`--baseline-dir`（可前置）＋ `--json`/`--dry-run`（任意位置）。
+
+    返回 `(root, baseline, json_mode, dry_run, 其余)`；其余原样交给域分派。
+    """
+    root = baseline = None
+    json_mode = dry_run = False
+    out: list[str] = []
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--json":
+            json_mode = True
+        elif a == "--dry-run":
+            dry_run = True
+        elif a == "--root" and i + 1 < len(argv):
+            root = argv[i + 1]; i += 1
+        elif a.startswith("--root="):
+            root = a.split("=", 1)[1]
+        elif a == "--baseline-dir" and i + 1 < len(argv):
+            baseline = argv[i + 1]; i += 1
+        elif a.startswith("--baseline-dir="):
+            baseline = a.split("=", 1)[1]
+        else:
+            out.append(a)
+        i += 1
+    return root, baseline, json_mode, dry_run, out
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    root_arg, baseline_arg, json_mode, dry_run, rest = _split_globals(argv)
+
+    if root_arg:
+        root = Path(root_arg).expanduser().resolve()
+    else:
+        env = os.environ.get("OFFICE_DOCS_ROOT")
+        root = Path(env).expanduser().resolve() if env else _find_root()
+    CFG["root"] = root
+    CFG["baseline"] = _load_baseline(root, baseline_arg)
+
+    ctx = Context(json_mode, dry_run)
+    if not rest or rest[0] in ("-h", "--help"):
+        print(USAGE)
+        return 0
+    try:
+        return dispatch(rest, ctx)
+    except (PptxError, XlsxError) as exc:
+        print(f"错误：{exc}", file=sys.stderr)
+        return 1
+
+
+M = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+RNS = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+AN = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+
+# Excel 主题色索引顺序（**不是** theme1.xml 里 clrScheme 的书写顺序）：0=lt1、1=dk1…
+# 实测校对：模板里 `theme="4"` 的填充 ＝ `#156082` ＝ accent1 ＝ 硬编码的 `FF156082` ✓
+_THEME_ORDER = ("lt1", "dk1", "lt2", "dk2", "accent1", "accent2", "accent3",
+                "accent4", "accent5", "accent6", "hlink", "folHlink")
+
+# 内置数字格式里与日期有关的那些（其余按普通数字处理）
+_BUILTIN_FMT = {
+    14: "m/d/yy", 15: "d-mmm-yy", 16: "d-mmm", 17: "mmm-yy", 18: "h:mm AM/PM",
+    19: "h:mm:ss AM/PM", 20: "h:mm", 21: "h:mm:ss", 22: "m/d/yy h:mm",
+    45: "mm:ss", 46: "[h]:mm:ss", 47: "mmss.0",
+}
+_DATE_TOKEN = re.compile(r"(?<!\\)([ymdhs]|AM/PM)", re.I)
+_EPOCH = _dt.date(1899, 12, 30)          # Excel 1900 体系（含著名的闰年 bug，实测够用）
+
+
+class XlsxError(Exception):
+    """文件不可读或结构不符。"""
+
+
+# ---------- 部件 ----------
+
+def _col_index(letters: str) -> int:
+    n = 0
+    for ch in letters:
+        n = n * 26 + (ord(ch.upper()) - 64)
+    return n - 1
+
+
+def split_ref(ref: str) -> tuple[int, int]:
+    """`AB4` → (列索引 0 起, 行号 1 起)。"""
+    m = re.match(r"^([A-Za-z]+)(\d+)$", ref.strip())
+    if not m:
+        raise XlsxError(f"单元格引用非法：{ref}")
+    return _col_index(m.group(1)), int(m.group(2))
+
+
+def parse_range(ref: str) -> tuple[int, int, int, int]:
+    """`B4:AB6` → (c1, r1, c2, r2)，允许单格 `C4`。"""
+    parts = ref.split(":")
+    c1, r1 = split_ref(parts[0])
+    c2, r2 = split_ref(parts[1]) if len(parts) > 1 else (c1, r1)
+    return min(c1, c2), min(r1, r2), max(c1, c2), max(r1, r2)
+
+
+def _shared_strings(z: zipfile.ZipFile) -> list[str]:
+    if "xl/sharedStrings.xml" not in z.namelist():
+        return []
+    return ["".join(t.text or "" for t in si.iter(M + "t"))
+            for si in ET.fromstring(z.read("xl/sharedStrings.xml"))]
+
+
+def sheets(path: str) -> list[tuple[str, str]]:
+    """[(表名, 工作表部件路径)]，按 workbook 顺序。"""
+    if not os.path.isfile(path):
+        raise XlsxError(f"文件不存在：{path}")
+    with zipfile.ZipFile(path) as z:
+        rels = {r.get("Id"): r.get("Target", "") for r in
+                ET.fromstring(z.read("xl/_rels/workbook.xml.rels"))}
+        out = []
+        for sh in ET.fromstring(z.read("xl/workbook.xml")).iter(M + "sheet"):
+            tgt = rels.get(sh.get(RNS + "id"), "").lstrip("/")
+            out.append((sh.get("name"), tgt if tgt.startswith("xl/") else "xl/" + tgt))
+        return out
+
+
+def _children(root: ET.Element, tag: str) -> list[ET.Element]:
+    """取子元素列表（不能用 `node or []`：ElementTree 对空元素的真值判断已弃用）。"""
+    node = root.find(M + tag)
+    return list(node) if node is not None else []
+
+
+def _theme_colors(z: zipfile.ZipFile) -> dict[int, str]:
+    """theme1.xml 的 clrScheme → `{索引: #RRGGBB}`（按 Excel 的索引顺序）。"""
+    if "xl/theme/theme1.xml" not in z.namelist():
+        return {}
+    scheme = ET.fromstring(z.read("xl/theme/theme1.xml")).find(".//" + AN + "clrScheme")
+    if scheme is None:
+        return {}
+    out: dict[int, str] = {}
+    for i, key in enumerate(_THEME_ORDER):
+        node = scheme.find(AN + key)
+        if node is None:
+            continue
+        srgb, sys_clr = node.find(AN + "srgbClr"), node.find(AN + "sysClr")
+        if srgb is not None:
+            out[i] = "#" + srgb.get("val", "").upper()
+        elif sys_clr is not None:
+            out[i] = "#" + (sys_clr.get("lastClr") or "000000").upper()
+    return out
+
+
+def _apply_tint(rgb: str, tint: float) -> str:
+    """Excel 的 tint：>0 向白靠、<0 向黑靠。主题色变体（fill[12]–fill[35]）靠它还原。"""
+    chans = [int(rgb[i:i + 2], 16) for i in (1, 3, 5)]
+    if tint > 0:
+        out = [c + (255 - c) * tint for c in chans]
+    else:
+        out = [c * (1 + tint) for c in chans]
+    return "#%02X%02X%02X" % tuple(max(0, min(255, int(round(v)))) for v in out)
+
+
+def _color(node, themes: dict[int, str]) -> str | None:
+    if node is None:
+        return None
+    if node.get("rgb"):
+        return "#" + node.get("rgb")[-6:].upper()
+    if node.get("theme") is not None:
+        base = themes.get(int(node.get("theme")))
+        if base is None:
+            return None
+        tint = node.get("tint")
+        return _apply_tint(base, float(tint)) if tint else base
+    return None                                  # indexed／自动色：交给调用方兜底
+
+
+def _styles(z: zipfile.ZipFile) -> dict:
+    """`cellXfs → 简化样式`：{fill: #rrggbb, font: {...}, border: {...}, align: {...}}。"""
+    empty = {"fonts": [], "fills": [], "borders": [], "xfs": [], "numFmts": {}}
+    if "xl/styles.xml" not in z.namelist():
+        return empty
+    root = ET.fromstring(z.read("xl/styles.xml"))
+    themes = _theme_colors(z)
+
+    def color(node) -> str | None:
+        return _color(node, themes)
+
+    fonts = []
+    for f in _children(root, "fonts"):
+        sz, b, nm, c = (f.find(M + t) for t in ("sz", "b", "name", "color"))
+        fonts.append({"sz": float(sz.get("val")) if sz is not None else 11.0,
+                      "b": b is not None,
+                      "name": nm.get("val") if nm is not None else None,
+                      "color": color(c)})
+    fills = []
+    for fl in _children(root, "fills"):
+        pf = fl.find(M + "patternFill")
+        fills.append({"pattern": pf.get("patternType") if pf is not None else None,
+                      "color": color(pf.find(M + "fgColor")) if pf is not None else None})
+    borders = []
+    for bd in _children(root, "borders"):
+        edge = {}
+        for k, tag in (("l", "left"), ("r", "right"), ("t", "top"), ("b", "bottom")):
+            e = bd.find(M + tag)
+            edge[k] = ({"style": e.get("style"), "color": color(e.find(M + "color"))}
+                       if e is not None and e.get("style") else None)
+        borders.append(edge)
+    xfs = []
+    for xf in _children(root, "cellXfs"):
+        al = xf.find(M + "alignment")
+        xfs.append({"font": int(xf.get("fontId", 0)), "fill": int(xf.get("fillId", 0)),
+                    "border": int(xf.get("borderId", 0)),
+                    "numFmtId": int(xf.get("numFmtId", 0)),
+                    "align": ({"h": al.get("horizontal"), "v": al.get("vertical"),
+                               "wrap": al.get("wrapText") == "1"} if al is not None else {})})
+    codes = {int(f.get("numFmtId")): f.get("formatCode") for f in root.iter(M + "numFmt")}
+    return {"fonts": fonts, "fills": fills, "borders": borders, "xfs": xfs, "numFmts": codes}
+
+
+def _numfmt(styles: dict, num_fmt_id: int) -> str:
+    return styles["numFmts"].get(num_fmt_id) or _BUILTIN_FMT.get(num_fmt_id, "")
+
+
+def _is_date_fmt(code: str) -> bool:
+    """有 y/m/d 之类 token，且不含数字占位符 `0#?` ⇒ 当日期（避免把 `0.00` 误判）。"""
+    if not code:
+        return False
+    first = code.split(";")[0]
+    return bool(_DATE_TOKEN.search(first)) and not re.search(r"[0#?]", first)
+
+
+def _fmt_serial(v: float) -> str:
+    d = _EPOCH + _dt.timedelta(days=int(v))
+    return f"{d.year}-{d.month}-{d.day}"
+
+
+def _cell_text(c: ET.Element, ss: list[str], styles: dict) -> str:
+    t = c.get("t")
+    if t == "s":
+        v = c.find(M + "v")
+        return ss[int(v.text)] if v is not None and v.text else ""
+    if t == "inlineStr":
+        node = c.find(M + "is")
+        return "".join(x.text or "" for x in node.iter(M + "t")) if node is not None else ""
+    v = c.find(M + "v")
+    if v is None or not v.text:
+        return ""
+    raw = v.text
+    if t not in ("str", "b", "e"):
+        xf = styles["xfs"][int(c.get("s", 0))] if styles["xfs"] and c.get("s") else None
+        if xf and _is_date_fmt(_numfmt(styles, xf["numFmtId"])):
+            try:
+                return _fmt_serial(float(raw))
+            except ValueError:
+                return raw
+        if raw.endswith(".0"):
+            raw = raw[:-2]
+    return raw
+
+
+def _cell_style(c: ET.Element, styles: dict) -> dict:
+    if not styles["xfs"] or not c.get("s"):
+        return {}
+    xf = styles["xfs"][int(c.get("s"))]
+    fill = styles["fills"][xf["fill"]] if xf["fill"] < len(styles["fills"]) else {}
+    font = styles["fonts"][xf["font"]] if xf["font"] < len(styles["fonts"]) else {}
+    border = styles["borders"][xf["border"]] if xf["border"] < len(styles["borders"]) else {}
+    return {"fill": fill.get("color") if fill.get("pattern") == "solid" else None,
+            "font": font, "border": border, "align": xf["align"]}
+
+
+# ---------- 对外能力 ----------
+
+def sheet_list(path: str) -> list[dict]:
+    """`[{index, name, part}]`——**显示名与部件名常不一致**（WPS：显示 `Sheet3`、部件 `sheet1.xml`）。
+
+    所以选表支持两种写法：名字（`--sheet`，照显示名）或序号（`--index`，从 1 起）。
+    """
+    return [{"index": i, "name": n, "part": p} for i, (n, p) in enumerate(sheets(path), 1)]
+
+
+def _sheet_xml(path: str, sheet: str | None, index: int | None = None
+               ) -> tuple[str, ET.Element, list[str], dict]:
+    with zipfile.ZipFile(path) as z:
+        all_sheets = sheets(path)
+        if not all_sheets:
+            raise XlsxError("工作簿里没有工作表")
+        if index is not None:
+            if not 1 <= index <= len(all_sheets):
+                raise XlsxError("没有第 %d 个工作表（共 %d 个）" % (index, len(all_sheets)))
+            target, part = all_sheets[index - 1]
+        else:
+            target = sheet or all_sheets[0][0]
+            part = next((p for n, p in all_sheets if n == target), None)
+            if part is None:
+                raise XlsxError("没有工作表 %r（有：%s；也可用 --index 按序号选）"
+                                % (target, "、".join("%d=%s" % (i, n)
+                                                    for i, (n, _) in enumerate(all_sheets, 1))))
+        return target, ET.fromstring(z.read(part)), _shared_strings(z), _styles(z)
+
+
+def xlsx_dump(path: str, sheet: str | None = None, index: int | None = None,
+         show_empty: bool = False) -> dict:
+    """结构清单：每行每格的值＋样式摘要。`show_empty=True` 连**只有样式没文字**的格一起列。"""
+    name, root, ss, styles = _sheet_xml(path, sheet, index)
+    dim = root.find(M + "dimension")
+    mc = root.find(M + "mergeCells")
+    cols = root.find(M + "cols")
+    rows = []
+    for row in root.findall(M + "sheetData/" + M + "row"):
+        cells = [{"ref": c.get("r"), "text": _cell_text(c, ss, styles),
+                  "style": _cell_style(c, styles)} for c in row.findall(M + "c")]
+        if show_empty or any(x["text"] for x in cells):
+            rows.append({"r": int(row.get("r")), "h": row.get("ht"),
+                         "custom_h": row.get("customHeight") == "1", "cells": cells})
+    return {"file": os.path.basename(path), "sheet": name,
+            "dimension": dim.get("ref") if dim is not None else None,
+            "merged": [c.get("ref") for c in mc] if mc is not None else [],
+            "cols": [{"min": c.get("min"), "max": c.get("max"), "width": c.get("width")}
+                     for c in cols] if cols is not None else [],
+            "rows": rows}
+
+
+def grid(path: str, sheet: str | None, ref: str, index: int | None = None) -> dict:
+    """取一个矩形区域 → `{cells: 二维[ {ref,text,style} ], merged, cols, rows}`（`add-table` 的输入）。"""
+    name, root, ss, styles = _sheet_xml(path, sheet, index)
+    c1, r1, c2, r2 = parse_range(ref)
+    by_ref = {}
+    heights = {}
+    for row in root.findall(M + "sheetData/" + M + "row"):
+        rn = int(row.get("r"))
+        heights[rn] = row.get("ht")
+        for c in row.findall(M + "c"):
+            by_ref[c.get("r")] = c
+    cells = []
+    for rn in range(r1, r2 + 1):
+        line = []
+        for cn in range(c1, c2 + 1):
+            letters = ""
+            n = cn + 1
+            while n:
+                n, rem = divmod(n - 1, 26)
+                letters = chr(65 + rem) + letters
+            cell_ref = f"{letters}{rn}"
+            c = by_ref.get(cell_ref)
+            if c is None:
+                line.append({"ref": cell_ref, "text": "", "style": {}})
+            else:
+                line.append({"ref": cell_ref, "text": _cell_text(c, ss, styles),
+                             "style": _cell_style(c, styles)})
+        cells.append(line)
+    mc = root.find(M + "mergeCells")
+    merged = [x.get("ref") for x in mc] if mc is not None else []
+    inside = [m for m in merged
+              if (lambda a: a[0] >= c1 and a[1] >= r1 and a[2] <= c2 and a[3] <= r2)(parse_range(m))]
+    cols = root.find(M + "cols")
+    return {"sheet": name, "range": ref, "rows": r2 - r1 + 1, "cols_n": c2 - c1 + 1,
+            "cells": cells, "merged": inside,
+            "col_widths": [c.get("width") for c in cols] if cols is not None else [],
+            "row_heights": [heights.get(r) for r in range(r1, r2 + 1)]}
+
+
+# ---------- 写出：md 表格 → xlsx（`D-077`） ----------
+#
+# 零依赖手写最小 xlsx（不引 openpyxl）：只发 6 个部件，单元格一律 `inlineStr`——
+# 绕开 sharedStrings 共享表，值写进去就是文本。**日期不转 1900 序列号**：导入类场景
+# 要的就是字面 `yyyy-MM-dd`（写成日期格式会让下游拿到序列号或本地化显示）。
+
+_MD_SEP = re.compile(r":?-{1,}:?")
+_ILLEGAL_SHEET = re.compile(r"[\[\]:*?/\\]")
+_XMLNS_MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+_XMLNS_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+_XMLNS_PKG = "http://schemas.openxmlformats.org/package/2006/relationships"
+_XMLNS_CT = "http://schemas.openxmlformats.org/package/2006/content-types"
+_XML_DECL = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+
+
+def _split_md_row(line: str) -> list[str]:
+    """md 表格行 → 单元格（去首尾 `|`，`\\|` 视为字面竖线）。"""
+    s = line.strip()
+    if s.startswith("|"):
+        s = s[1:]
+    if s.endswith("|"):
+        s = s[:-1]
+    cells: list[str] = []
+    buf: list[str] = []
+    esc = False
+    for ch in s:
+        if esc:
+            buf.append(ch)
+            esc = False
+        elif ch == "\\":
+            esc = True
+        elif ch == "|":
+            cells.append("".join(buf).strip())
+            buf = []
+        else:
+            buf.append(ch)
+    cells.append("".join(buf).strip())
+    return cells
+
+
+def _is_sep_row(cells: list[str]) -> bool:
+    """`| --- | :---: |` 这类分隔行（空单元格不算）。"""
+    return bool(cells) and all(_MD_SEP.fullmatch(c) for c in cells)
+
+
+def _xml_esc(text: str) -> str:
+    return (text.replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace('"', "&quot;"))
+
+
+def _disp_width(text: str) -> int:
+    """显示宽度：全角／宽字符算 2（估列宽用）。"""
+    return sum(2 if unicodedata.east_asian_width(c) in ("W", "F") else 1 for c in text)
+
+
+def _col_letters(index: int) -> str:
+    """0 起列索引 → 列字母（`0`→`A`、`27`→`AB`）。"""
+    out = ""
+    n = index + 1
+    while n:
+        n, rem = divmod(n - 1, 26)
+        out = chr(65 + rem) + out
+    return out
+
+
+def parse_md_tables(text: str) -> list[dict]:
+    """解析 md 里所有管道表格 → `[{index, line, header, rows, cols, ragged}]`。
+
+    连续以 `|` 开头的行算一张表；第二行的 `| --- |` 分隔行跳过。数据行列数与表头不齐时
+    补空／截断，`ragged` 记不齐的行数（让调用方察觉，不静默吞掉）。
+    """
+    blocks: list[list[tuple[int, str]]] = []
+    cur: list[tuple[int, str]] = []
+    for lineno, line in enumerate(text.split("\n"), 1):
+        if line.lstrip().startswith("|"):
+            cur.append((lineno, line))
+        elif cur:
+            blocks.append(cur)
+            cur = []
+    if cur:
+        blocks.append(cur)
+
+    tables: list[dict] = []
+    for block in blocks:
+        if len(block) < 2:
+            continue
+        header = _split_md_row(block[0][1])
+        if _is_sep_row(header):
+            continue
+        body = [c for _, line in block[1:]
+                if not _is_sep_row(c := _split_md_row(line))]
+        width = len(header)
+        tables.append({"index": len(tables) + 1, "line": block[0][0], "header": header,
+                       "rows": [(r + [""] * width)[:width] for r in body],
+                       "cols": width,
+                       "ragged": sum(1 for r in body if len(r) != width)})
+    return tables
+
+
+_STYLES_XML = (_XML_DECL + f'<styleSheet xmlns="{_XMLNS_MAIN}">'
+               '<fonts count="2">'
+               '<font><sz val="11"/><name val="等线"/></font>'
+               '<font><b/><sz val="11"/><name val="等线"/></font>'
+               '</fonts>'
+               '<fills count="3">'
+               '<fill><patternFill patternType="none"/></fill>'
+               '<fill><patternFill patternType="gray125"/></fill>'
+               '<fill><patternFill patternType="solid">'
+               '<fgColor rgb="FFF2F2F2"/><bgColor indexed="64"/></patternFill></fill>'
+               '</fills>'
+               '<borders count="1">'
+               '<border><left/><right/><top/><bottom/><diagonal/></border>'
+               '</borders>'
+               '<cellStyleXfs count="1">'
+               '<xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+               '<cellXfs count="2">'
+               '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+               '<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0"'
+               ' applyFont="1" applyFill="1"/>'
+               '</cellXfs>'
+               '<cellStyles count="1">'
+               '<cellStyle name="常规" xfId="0" builtinId="0"/></cellStyles>'
+               '</styleSheet>')
+
+_MAIN_CT = "application/vnd.openxmlformats-officedocument.spreadsheetml"
+_CONTENT_TYPES = (_XML_DECL + f'<Types xmlns="{_XMLNS_CT}">'
+                  '<Default Extension="rels"'
+                  ' ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+                  '<Default Extension="xml" ContentType="application/xml"/>'
+                  f'<Override PartName="/xl/workbook.xml" ContentType="{_MAIN_CT}.sheet.main+xml"/>'
+                  f'<Override PartName="/xl/worksheets/sheet1.xml"'
+                  f' ContentType="{_MAIN_CT}.worksheet+xml"/>'
+                  f'<Override PartName="/xl/styles.xml" ContentType="{_MAIN_CT}.styles+xml"/>'
+                  '</Types>')
+
+_ROOT_RELS = (_XML_DECL + f'<Relationships xmlns="{_XMLNS_PKG}">'
+              f'<Relationship Id="rId1" Type="{_XMLNS_REL}/officeDocument"'
+              ' Target="xl/workbook.xml"/></Relationships>')
+
+_WB_RELS = (_XML_DECL + f'<Relationships xmlns="{_XMLNS_PKG}">'
+            f'<Relationship Id="rId1" Type="{_XMLNS_REL}/worksheet"'
+            ' Target="worksheets/sheet1.xml"/>'
+            f'<Relationship Id="rId2" Type="{_XMLNS_REL}/styles" Target="styles.xml"/>'
+            '</Relationships>')
+
+
+def _sheet_part(header: list[str], rows: list[list[str]], freeze: bool) -> str:
+    def cell(ref: str, text: str, style: str) -> str:
+        if text == "":
+            return ""                       # 空值不写格（Excel 视同空）
+        return (f'<c r="{ref}" t="inlineStr"{style}>'
+                f'<is><t xml:space="preserve">{_xml_esc(text)}</t></is></c>')
+
+    body = []
+    for ri, row in enumerate([header] + rows, 1):
+        style = ' s="1"' if ri == 1 else ""
+        body.append(f'<row r="{ri}">' + "".join(
+            cell(f"{_col_letters(ci)}{ri}", val, style) for ci, val in enumerate(row))
+            + '</row>')
+    widths = [max([_disp_width(header[c])] + [_disp_width(r[c]) for r in rows] + [4])
+              for c in range(len(header))]
+    cols = "".join(f'<col min="{i + 1}" max="{i + 1}" width="{min(50, w + 2)}" customWidth="1"/>'
+                   for i, w in enumerate(widths))
+    views = ('<sheetViews><sheetView workbookViewId="0">'
+             '<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>'
+             '<selection pane="bottomLeft" activeCell="A2" sqref="A2"/>'
+             '</sheetView></sheetViews>' if freeze
+             else '<sheetViews><sheetView workbookViewId="0"/></sheetViews>')
+    last = f"{_col_letters(len(header) - 1)}{len(rows) + 1}"
+    return (_XML_DECL + f'<worksheet xmlns="{_XMLNS_MAIN}">'
+            f'<dimension ref="A1:{last}"/>{views}'
+            '<sheetFormatPr defaultRowHeight="15"/>'
+            f'<cols>{cols}</cols><sheetData>{"".join(body)}</sheetData></worksheet>')
+
+
+def write_table(path: str, header: list[str], rows: list[list[str]], *,
+                sheet_name: str = "Sheet1", force: bool = False,
+                freeze: bool = True) -> dict:
+    """把二维表写成 xlsx（表头**加粗＋浅灰底**、冻结首行、列宽按内容估）。
+
+    目标已存在时**拒绝**（`force=True` 覆盖）——写文件不静默覆盖。
+    """
+    if not header:
+        raise XlsxError("表头为空，无法写出")
+    if not sheet_name or len(sheet_name) > 31 or _ILLEGAL_SHEET.search(sheet_name):
+        raise XlsxError("工作表名非法（1–31 字符且不含 [ ] : * ? / \\）：%r" % sheet_name)
+    if os.path.exists(path) and not force:
+        raise XlsxError("目标已存在：%s（加 --force 可覆盖）" % path)
+    parent = os.path.dirname(os.path.abspath(path))
+    os.makedirs(parent, exist_ok=True)
+
+    workbook = (_XML_DECL + f'<workbook xmlns="{_XMLNS_MAIN}" xmlns:r="{_XMLNS_REL}">'
+                f'<sheets><sheet name="{_xml_esc(sheet_name)}" sheetId="1" r:id="rId1"/>'
+                '</sheets></workbook>')
+    parts = {
+        "[Content_Types].xml": _CONTENT_TYPES,
+        "_rels/.rels": _ROOT_RELS,
+        "xl/workbook.xml": workbook,
+        "xl/_rels/workbook.xml.rels": _WB_RELS,
+        "xl/styles.xml": _STYLES_XML,
+        "xl/worksheets/sheet1.xml": _sheet_part(header, rows, freeze),
+    }
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        for name, data in parts.items():
+            z.writestr(name, data)
+    return {"file": os.path.basename(path), "path": path, "sheet": sheet_name,
+            "rows": len(rows) + 1, "cols": len(header),
+            "bytes": os.path.getsize(path)}
+
+
+SLIDE_RE = re.compile(r"^ppt/slides/slide(\d+)\.xml$")
+REF_RE = re.compile(r"^slide(\d+)!(?:sp\[(\d+)\]|tbl(\d+)\.r(\d+)\.c(\d+))(?:\.p(\d+))?$")
+T_RE = re.compile(r"(<a:t>)(.*?)(</a:t>)", re.S)
+SP_RE = r"<p:sp>.*?</p:sp>"
+CX_RE = r"<p:cxnSp>.*?</p:cxnSp>"
+TBL_RE = r"<a:tbl>.*?</a:tbl>"
+TR_RE = r"<a:tr[ >].*?</a:tr>"
+TC_RE = r"<a:tc[ >].*?</a:tc>"
+GF_RE = r"<p:graphicFrame>.*?</p:graphicFrame>"
+P_RE = r"<a:p>.*?</a:p>"
+
+USAGE_REF = "ref 语法：`slide2!tbl0.r1.c2`（表格单元格）／`slide1!sp[2]`（形状），可加 `.p0` 指定段落"
+
+
+class PptxError(Exception):
+    """定位失败或 ref 非法——调用方据此报错退出，不写文件。"""
+
+
+# ---------- 底层：包读写与定位 ----------
+
+def load(path: str) -> tuple[list[zipfile.ZipInfo], dict[str, bytes]]:
+    """读入 pptx 的条目顺序与数据（顺序保留，重打包时原样写回）。"""
+    if not os.path.isfile(path):
+        raise PptxError(f"文件不存在：{path}")
+    with zipfile.ZipFile(path) as z:
+        infos = z.infolist()
+        data = {i.filename: z.read(i.filename) for i in infos}
+    return infos, data
+
+
+def save(path: str, infos: list[zipfile.ZipInfo], data: dict[str, bytes]) -> None:
+    """原条目顺序重打包；非目标条目数据逐字保留（见模块头 ① ）。"""
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zo:
+        for i in infos:
+            ni = zipfile.ZipInfo(i.filename, date_time=i.date_time)
+            ni.compress_type = i.compress_type
+            ni.external_attr = i.external_attr
+            ni.internal_attr = i.internal_attr
+            ni.create_system = i.create_system
+            zo.writestr(ni, data[i.filename])
+
+
+def _find_nth(pat: str, text: str, n: int, start: int = 0, end: int | None = None) -> tuple[int, int]:
+    """在 `text[start:end]` 内找第 n 个匹配，返回**绝对**区间 `(s, e)`（见模块头 ② ）。"""
+    ms = list(re.finditer(pat, text[start:end], re.S))
+    if len(ms) <= n:
+        raise PptxError(f"定位失败：{pat} 第 {n} 个（该区间内只有 {len(ms)} 个）")
+    return start + ms[n].start(), start + ms[n].end()
+
+
+def locate(xml: str, ref: str) -> tuple[int, int]:
+    """把 ref 解析成 slide XML 内的绝对区间。"""
+    m = REF_RE.match(ref)
+    if not m:
+        raise PptxError(f"ref 非法：{ref}（{USAGE_REF}）")
+    if m.group(2) is not None:
+        s, e = _find_nth(SP_RE, xml, int(m.group(2)))
+    else:
+        s1, e1 = _find_nth(TBL_RE, xml, int(m.group(3)))
+        s2, e2 = _find_nth(TR_RE, xml, int(m.group(4)), s1, e1)
+        s, e = _find_nth(TC_RE, xml, int(m.group(5)), s2, e2)
+    if m.group(6) is not None:
+        s, e = _find_nth(P_RE, xml, int(m.group(6)), s, e)
+    return s, e
+
+
+def runs(scope: str) -> list[str]:
+    """scope 内的全部 `<a:t>` 文本（按出现次序，**已反转义**）——多 run 即一个段落被拆成多段格式。"""
+    return [_unesc(m.group(2)) for m in T_RE.finditer(scope)]
+
+
+def _slice_for(path: str, infos: list[zipfile.ZipInfo], ref: str) -> str:
+    m = REF_RE.match(ref)
+    if not m:
+        raise PptxError(f"ref 非法：{ref}（{USAGE_REF}）")
+    name = f"ppt/slides/slide{int(m.group(1))}.xml"
+    if name not in {i.filename for i in infos}:
+        raise PptxError(f"该文件里没有 {name}")
+    return name
+
+
+_SHAPE_TAGS = {"sp": r"<p:sp>.*?</p:sp>", "gf": r"<p:graphicFrame>.*?</p:graphicFrame>",
+               "pic": r"<p:pic>.*?</p:pic>", "cx": r"<p:cxnSp>.*?</p:cxnSp>"}
+
+
+def _is_readonly_baseline(path: str) -> bool:
+    """`CFG["baseline"]` 指向的目录是只读基线（来料模板）。
+
+    保护理由（事故记录）：`--dry-run` 曾是全局标志（须写在域之前），写在子命令末尾
+    会被当成 set 的参数而**真的就地改写模板**——护栏该拦在工具里，不能只靠人记命令行顺序。
+    基线目录由 `--baseline-dir` / `OFFICE_DOCS_BASELINE` / `.office-docs.toml` 提供；空值 ＝ 不设护栏。
+    """
+    base = CFG.get("baseline")
+    if not base:
+        return False
+    p = os.path.abspath(path).replace(os.sep, "/")
+    b = base.replace(os.sep, "/")
+    return p == b or p.startswith(b + "/")
+
+
+# ---------- 对外能力 ----------
+
+_OFF_EXT_RE = re.compile(r'<a:off x="(-?\d+)" y="(-?\d+)"/>\s*<a:ext cx="(\d+)" cy="(\d+)"/>', re.S)
+_OFF_RE = re.compile(r'<a:off x="(-?\d+)" y="(-?\d+)"/>')
+
+
+def _box(scope: str) -> dict | None:
+    """取形状／表格的位置尺寸，**统一换算成 pt**（`1pt = 12700 EMU`）。
+
+    踩过的坑：一度用 `9525`（那是 **px→EMU**）去读、算出一组偏大 4/3 的数，再当成 pt 传回
+    `add-table`，结果把用户手调好的表放大了 4/3 倍。坐标一律用本函数给的值照拄。
+    """
+    m = _OFF_EXT_RE.search(scope)
+    if m is None:
+        return None
+    return {k: int(v) // 12700 for k, v in zip(("x", "y", "w", "h"), m.groups())}
+
+
+def dump(path: str) -> dict:
+    """结构清单：逐页列出**带文字的形状**与表格单元格（含 ref／run 数）。"""
+    infos, data = load(path)
+    slides = []
+    for name in sorted((i.filename for i in infos if SLIDE_RE.match(i.filename)),
+                       key=lambda n: int(SLIDE_RE.match(n).group(1))):
+        n = int(SLIDE_RE.match(name).group(1))
+        xml = data[name].decode("utf-8")
+        shapes = []
+        for si, m in enumerate(re.finditer(SP_RE, xml, re.S)):
+            txt = runs(m.group(0))
+            if not any(t.strip() for t in txt):
+                continue
+            shapes.append({"ref": f"slide{n}!sp[{si}]", "runs": len(txt), "text": "".join(txt),
+                           "at": _box(m.group(0))})
+        tables = []
+        tbl_i = 0
+        for gf_i, gm in enumerate(re.finditer(GF_RE, xml, re.S)):
+            seg = gm.group(0)
+            if "<a:tbl>" not in seg:
+                continue
+            trows = []
+            for tr in re.finditer(TR_RE, seg, re.S):
+                cells = []
+                for ci, tc in enumerate(re.finditer(TC_RE, tr.group(0), re.S)):
+                    txt = runs(tc.group(0))
+                    cells.append({"ref": f"slide{n}!tbl{tbl_i}.r{len(trows)}.c{ci}",
+                                  "runs": len(txt), "text": "".join(txt)})
+                trows.append(cells)
+            tables.append({"ref": f"slide{n}!tbl{tbl_i}", "gf": gf_i, "at": _box(seg),
+                           "rows": len(trows), "cols": len(trows[0]) if trows else 0,
+                           "cells": trows})
+            tbl_i += 1
+        conns = []
+        for ci, cm in enumerate(re.finditer(CX_RE, xml, re.S)):
+            seg = cm.group(0)
+            dash = re.search(r'<a:prstDash val="([^"]+)"', seg)
+            col = re.search(r'<a:srgbClr val="([0-9A-Fa-f]{6})"', seg)
+            conns.append({"ref": f"slide{n}!cx[{ci}]", "at": _box(seg),
+                          "arrow": "<a:tailEnd" in seg, "dash": dash.group(1) if dash else None,
+                          "color": col.group(1) if col else None})
+        slides.append({"slide": n, "shapes": shapes, "tables": tables, "connectors": conns})
+    return {"file": os.path.basename(path), "slides": slides}
+
+
+def find(path: str, needle: str) -> list[dict]:
+    """按文本片段查找可改位置（ref），供 `set` 直接用。"""
+    hits = []
+    for s in dump(path)["slides"]:
+        for sh in s["shapes"]:
+            if needle in sh["text"]:
+                hits.append({"ref": sh["ref"], "text": sh["text"], "runs": sh["runs"]})
+        for tb in s["tables"]:
+            for row in tb["cells"]:
+                for c in row:
+                    if needle in c["text"]:
+                        hits.append({"ref": c["ref"], "text": c["text"], "runs": c["runs"]})
+    return hits
+
+
+def _fill_empty(scope: str, text: str) -> str | None:
+    """往**空**单元格／空形状里建文字：在首个段落内插一个 run（字体属性从 `endParaRPr` 继承）。
+
+    为什么要这个：排期表、风险表都带空行，不能填就没法用（旧行为是报错）。没有段落则返回 `None`。
+
+    ⚠️ 插入位置：`<a:endParaRPr>` 是**段落结束属性**，schema 要求它排在所有 `<a:r>` **之后**；
+    插在它前面会让整个段落不合规，**PowerPoint 会静默丢掉这一行**（实测：无内容行被丢弃，
+    PDF 与 PowerPoint 都比 XML 少行，而 `ET` 仍认为良构）。
+    """
+    p = re.search(r"<a:p[ >].*?</a:p>", scope, re.S)
+    if p is None:
+        return None
+    seg = p.group(0)
+    attrs = ""
+    holder = re.search(r"<a:endParaRPr", seg)
+    if holder is not None:
+        # 属性取到第一个 `>` 之前；自闭合时尾部多一个 `/` 要去掉。
+        # ⚠️ 必须按**开始位置**插（不能只认自闭合写法）：`endParaRPr` 带子元素
+        #（如 `<a:solidFill>`，模板里很常见）时若插到 `</a:p>` 前，run 就排到了它**之后**，
+        # 段落不合 schema ⇒ **PowerPoint 静默丢弃该 run**（单元格看着是空的，XML 却有字）。
+        m2 = re.match(r"<a:endParaRPr([^>]*)", seg[holder.start():])
+        attrs = (m2.group(1) if m2 else "").rstrip()
+        if attrs.endswith("/"):
+            attrs = attrs[:-1]
+        attrs = re.sub(r'\s*(lang|dirty)="[^"]*"', "", attrs).rstrip()
+    run = '<a:r><a:rPr lang="zh-CN" dirty="0"%s/><a:t>%s</a:t></a:r>' % (attrs, _esc(text))
+    if holder is not None:
+        new_seg = seg[:holder.start()] + run + seg[holder.start():]   # run 插在 endParaRPr 之前
+    else:
+        new_seg = seg.replace("</a:p>", run + "</a:p>")
+    return scope[:p.start()] + new_seg + scope[p.end():]
+
+
+def set_text(path: str, ref: str, text: str, *, run: int | None = None,
+             merge: bool = False, out: str | None = None, force: bool = False) -> dict:
+    """定点替换文字；默认**就地写回**并备份 `<stem>.bak.pptx`（`out` 可改落点）。
+
+    多 run 的段落默认**拒绝**（会丢局部格式）：须显式 `run=N` 单改某个 run，或 `merge=True` 合并进首 run。
+    `report/template/` 为只读基线：就地改写需 `force=True`，另存（`out=`）不受限。
+    """
+    if out is None and not force and _is_readonly_baseline(path):
+        raise PptxError(
+            f"拒绝就地改写模板基线：{path}\n"
+            f"template/ 是只读基线（见 docs/report/AGENTS.md）：要改请 --out 另存；"
+            f"确需就地改加 --force")
+    infos, data = load(path)
+    name = _slice_for(path, infos, ref)
+    xml = data[name].decode("utf-8")
+    s, e = locate(xml, ref)
+    scope = xml[s:e]
+    old_runs = runs(scope)
+    changed: list[dict] = []
+    if not old_runs:                                    # 空白目标：建文字
+        if not text:
+            raise PptxError(f"{ref} 是空的，没有可改内容也未给文字")
+        filled = _fill_empty(scope, text)
+        if filled is None:
+            raise PptxError(f"{ref} 里没有可写文字的段落")
+        new_scope = filled
+        changed = [{"run": 0, "old": "", "new": text}]
+    else:
+        if run is None and len(old_runs) > 1 and not merge:
+            listing = " / ".join(f"[{i}]{t}" for i, t in enumerate(old_runs))
+            raise PptxError(
+                f"{ref} 有 {len(old_runs)} 个 run（该段文字被拆成多段格式）：{listing}\n"
+                f"请显式指定 --run N 只改其中一段，或 --merge 合并进首 run（合并会丢其余 run 的局部格式）")
+        out_parts, last = [], 0
+        for i, m in enumerate(T_RE.finditer(scope)):
+            out_parts.append(scope[last:m.start()])
+            last = m.end()
+            old = _unesc(m.group(2))
+            if run is None:
+                new = text if i == 0 else ""            # merge：合并进首 run
+            else:
+                new = text if i == run else old         # 只改指定 run
+            if new != old:
+                changed.append({"run": i, "old": old, "new": new})
+            out_parts.append("<a:t>%s</a:t>" % _esc(new))          # 必须转义 & < >（否则写坏 XML）
+        out_parts.append(scope[last:])
+        new_scope = "".join(out_parts)
+    new_xml = xml[:s] + new_scope + xml[e:]
+
+    ET.fromstring(new_xml)                          # 写前自检：改坏就抛，不落盘
+    data[name] = new_xml.encode("utf-8")
+
+    target = out or path
+    backup = None
+    if not out:
+        backup = f"{os.path.splitext(path)[0]}.bak.pptx"
+        with open(path, "rb") as src, open(backup, "wb") as dst:
+            dst.write(src.read())
+    _write_verified(target, infos, data, backup)
+    return {"file": os.path.basename(target), "ref": ref,
+            "backup": backup,
+            "runs": len(old_runs), "changed": changed}
+
+
+def _write_verified(target_path: str, infos: list[zipfile.ZipInfo], data: dict[str, bytes],
+                    backup: str | None) -> None:
+    """写完立即自检；不合格则回滚（就地写回从备份恢复、另存则删输出），绝不留下坏文件。"""
+    save(target_path, infos, data)
+    problems = check(target_path)
+    if problems:
+        if backup and os.path.isfile(backup):
+            shutil.copyfile(backup, target_path)
+        elif os.path.isfile(target_path):
+            os.remove(target_path)
+        raise PptxError(f"写回后自检失败（{target_path}）：{problems}（已回滚）")
+
+
+# ---------- 图片 ----------
+
+_IMAGE_MAGIC = {".png": b"\x89PNG\r\n\x1a\n", ".jpg": b"\xff\xd8\xff",
+                ".jpeg": b"\xff\xd8\xff", ".gif": b"GIF8", ".bmp": b"BM"}
+
+
+def _image_size(blob: bytes, ext: str) -> tuple[int, int] | None:
+    """从文件头取宽高——只用于提醒“长宽比变了会被拉伸”。"""
+    try:
+        if ext == ".png":
+            return struct.unpack(">II", blob[16:24])
+        if ext == ".gif":
+            return struct.unpack("<HH", blob[6:10])
+        if ext == ".bmp":
+            w, h = struct.unpack("<ii", blob[18:26])
+            return abs(w), abs(h)
+        if ext in (".jpg", ".jpeg"):
+            i = 2
+            while i < len(blob) - 9:
+                if blob[i] != 0xFF:
+                    i += 1
+                    continue
+                if blob[i + 1] in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+                    h, w = struct.unpack(">HH", blob[i + 5:i + 9])
+                    return w, h
+                i += 2 + struct.unpack(">H", blob[i + 2:i + 4])[0]
+    except Exception:
+        return None
+    return None
+
+
+def _media_refs(infos: list[zipfile.ZipInfo], data: dict[str, bytes]) -> dict[str, list[str]]:
+    """媒体文件 → 引用它的**宿主**（`slide1`／`layout2`／`master1`…）。
+
+    “该换哪张图”靠它：模板的图未必挂在 slide 上（背景图常在 layout／master）。
+    """
+    refs: dict[str, list[str]] = {}
+    for i in infos:
+        if not i.filename.endswith(".rels"):
+            continue
+        host = os.path.splitext(os.path.basename(i.filename)[:-5])[0]
+        for t in re.findall(r'Target="([^"]+)"', data[i.filename].decode("utf-8", "replace")):
+            if "/media/" in t:
+                bucket = refs.setdefault("ppt/media/" + t.rsplit("/", 1)[1], [])
+                if host not in bucket:
+                    bucket.append(host)
+    return refs
+
+
+def media(path: str) -> list[dict]:
+    """媒体清单：什么图、多大、被哪几页引用。"""
+    infos, data = load(path)
+    refs = _media_refs(infos, data)
+    out = []
+    for i in infos:
+        if not i.filename.startswith("ppt/media/") or i.is_dir():
+            continue
+        blob = data[i.filename]
+        ext = os.path.splitext(i.filename)[1].lower()
+        size = _image_size(blob, ext)
+        out.append({"name": i.filename, "bytes": len(blob), "ext": ext,
+                    "size": f"{size[0]}×{size[1]}" if size else "—",
+                    "used_by": refs.get(i.filename, [])})
+    return out
+
+
+def put_image(path: str, target: str, source: str, *, out: str | None = None,
+              force: bool = False) -> dict:
+    """替换一张图（**同名同扩展名**就地换字节）。
+
+    显示尺寸由 slide 里的 `<a:ext>` 决定、**不随图片变**：长宽比不同会被拉伸，故返回 `aspect_warn`
+    提醒；换扩展名要改 rels，首期不支持。这仍属“改内容”，**不减版式**。
+    """
+    if out is None and not force and _is_readonly_baseline(path):
+        raise PptxError(f"拒绍就地改写模板基线：{path}（见 docs/report/AGENTS.md；另存用 --out，确需就地加 --force）")
+    infos, data = load(path)
+    name = target if target.startswith("ppt/media/") else f"ppt/media/{os.path.basename(target)}"
+    if name not in data:
+        raise PptxError(f"没有这个媒体条目：{name}（先用 `tz report pptx media` 列清单）")
+    if not os.path.isfile(source):
+        raise PptxError(f"源图不存在：{source}")
+    old_ext, new_ext = os.path.splitext(name)[1].lower(), os.path.splitext(source)[1].lower()
+    if old_ext != new_ext:
+        raise PptxError(f"扩展名必须一致（目标 {old_ext}／源图 {new_ext}）——换扩展名要改 rels，首期不支持")
+    blob = open(source, "rb").read()
+    if not blob:
+        raise PptxError("源图为空")
+    magic = _IMAGE_MAGIC.get(old_ext)
+    if magic and not blob.startswith(magic):
+        raise PptxError(f"源图内容与扩展名不符（{old_ext} 的魔数不匹配）——拒绍替换")
+    old = data[name]
+    warn = None
+    old_size, new_size = _image_size(old, old_ext), _image_size(blob, new_ext)
+    if old_size and new_size:
+        r_old, r_new = old_size[0] / old_size[1], new_size[0] / new_size[1]
+        if abs(r_old - r_new) / r_old > 0.05:
+            warn = (f"长宽比变了（{old_size[0]}×{old_size[1]} → "
+                    f"{new_size[0]}×{new_size[1]}），页面上会被拉伸")
+    data[name] = blob
+    target_path = out or path
+    backup = None
+    if not out:
+        backup = f"{os.path.splitext(path)[0]}.bak.pptx"
+        shutil.copyfile(path, backup)
+    _write_verified(target_path, infos, data, backup)
+    return {"file": os.path.basename(target_path), "target": name, "backup": backup,
+            "bytes": f"{len(old)} → {len(blob)}",
+            "used_by": _media_refs(infos, data).get(name, []), "aspect_warn": warn}
+
+
+# ---------- 造表：把 xlsx 区域搬成 pptx 原生表格（`MT-076`） ----------
+
+# Excel 边框粗细 → EMU（1pt = 12700）；虚线样式 → DrawingML prstDash
+_LINE_W = {"hair": 6350, "thin": 12700, "medium": 25400, "thick": 38100}
+_DASH = {"dotted": "sysDot", "dashed": "sysDash", "dashDot": "sysDashDot",
+         "dashDotDot": "sysDashDotDot", "double": "solid", "mediumDashed": "sysDash"}
+_DEFAULT_ROW_PT = 18.0
+
+
+def _pt(v: float) -> int:
+    return int(round(v * 12700))
+
+
+def _esc(s: str) -> str:
+    return (s.replace("&", "&amp;").replace("<", "&lt;")
+             .replace(">", "&gt;").replace('"', "&quot;"))
+
+
+def _unesc(s: str) -> str:
+    """读回时的反转义（`&amp;` 最后做，避免 `&amp;lt;` 被二次解码）。"""
+    return (s.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"')
+             .replace("&apos;", "'").replace("&amp;", "&"))
+
+
+def _norm_borders(cells: list[list[dict]]) -> None:
+    """把 xlsx 的「共享边」补成连续网格（原地改）。
+
+    Excel 相邻格只声明自己有的那条边（实测周次行大量只有 lrt），直搬会缺下框线。
+    """
+    rows, cols = len(cells), len(cells[0])
+    for r in range(rows):
+        for c in range(cols):
+            b = cells[r][c].setdefault("border", {})
+            for side, dr, dc, other in (("t", -1, 0, "b"), ("b", 1, 0, "t"),
+                                        ("l", 0, -1, "r"), ("r", 0, 1, "l")):
+                if b.get(side):
+                    continue
+                nr, nc = r + dr, c + dc
+                if 0 <= nr < rows and 0 <= nc < cols:
+                    nb = cells[nr][nc].get("border") or {}
+                    if nb.get(other):
+                        b[side] = nb[other]
+
+
+def _tc(cell: dict, span: int, vspan: int, hide_h: bool, hide_v: bool) -> str:
+    """一个 `<a:tc>`：值＋字体＋对齐＋四边＋填充。合并占位格仍要发（带 hMerge/vMerge）。"""
+    st = cell.get("style") or {}
+    font = st.get("font") or {}
+    algn = st.get("align") or {}
+    attrs = ""
+    if span > 1:
+        attrs += ' gridSpan="%d"' % span
+    if vspan > 1:
+        attrs += ' rowSpan="%d"' % vspan
+    if hide_h:
+        attrs += ' hMerge="1"'
+    if hide_v:
+        attrs += ' vMerge="1"'
+    rpr = '<a:rPr lang="zh-CN" sz="%d" dirty="0"' % int(round((font.get("sz") or 11) * 100))
+    if font.get("b"):
+        rpr += ' b="1"'
+    rpr += ">"
+    if font.get("color"):
+        rpr += '<a:solidFill><a:srgbClr val="%s"/></a:solidFill>' % font["color"].lstrip("#")
+    if font.get("name"):
+        rpr += '<a:latin typeface="%s"/>' % _esc(font["name"])
+    rpr += "</a:rPr>"
+    text = _esc(cell.get("text") or "")
+    para = '<a:p><a:pPr algn="%s"/>' % {"center": "ctr", "right": "r"}.get(algn.get("h"), "l")
+    para += ('<a:r>%s<a:t>%s</a:t></a:r>' % (rpr, text)) if text else '<a:endParaRPr lang="zh-CN"/>'
+    para += "</a:p>"
+    tcpr = '<a:tcPr anchor="%s" marL="9144" marR="9144">' % (
+        "ctr" if algn.get("v") == "center" else "t")
+    for side, tag in (("l", "lnL"), ("r", "lnR"), ("t", "lnT"), ("b", "lnB")):
+        e = (st.get("border") or {}).get(side)
+        if not e:
+            continue
+        w = _LINE_W.get(e.get("style") or "thin", 12700)
+        dash = _DASH.get(e.get("style") or "thin", "sysDot")
+        col = (e.get("color") or "#000000").lstrip("#")
+        tcpr += ('<a:%s w="%d" cap="flat" cmpd="sng" algn="ctr">'
+                 '<a:solidFill><a:srgbClr val="%s"/></a:solidFill>'
+                 '<a:prstDash val="%s"/></a:%s>' % (tag, w, col, dash, tag))
+    if st.get("fill"):
+        tcpr += '<a:solidFill><a:srgbClr val="%s"/></a:solidFill>' % st["fill"].lstrip("#")
+    tcpr += "</a:tcPr>"
+    return ("<a:tc%s><a:txBody><a:bodyPr/><a:lstStyle/>%s</a:txBody>%s</a:tc>"
+            % (attrs, para, tcpr))
+
+
+def _table_xml(grid: dict, x_pt: float, y_pt: float, w_pt: float | None, h_pt: float | None,
+               shape_id: int, name: str) -> tuple[str, dict]:
+    """按 grid 生成 `<p:graphicFrame>`（表格）：合并→gridSpan/rowSpan＋占位格，逐格样式。"""
+    src = grid["cells"]
+    cells = [[{"text": c["text"], "style": c["style"]} for c in row] for row in src]
+    n_rows, n_cols = len(cells), len(cells[0])
+    first_c, first_r = split_ref(src[0][0]["ref"])
+    spans: dict[tuple[int, int], tuple[int, int]] = {}
+    hidden: dict[tuple[int, int], tuple[bool, bool]] = {}
+    for m in grid.get("merged") or []:
+        c1, r1, c2, r2 = parse_range(m)
+        gc1, gr1, gc2, gr2 = c1 - first_c, r1 - first_r, c2 - first_c, r2 - first_r
+        if not (0 <= gc1 <= gc2 < n_cols and 0 <= gr1 <= gr2 < n_rows):
+            continue
+        spans[(gr1, gc1)] = (gc2 - gc1 + 1, gr2 - gr1 + 1)
+        for r in range(gr1, gr2 + 1):
+            for c in range(gc1, gc2 + 1):
+                if (r, c) != (gr1, gc1):
+                    hidden[(r, c)] = (c != gc1, r != gr1)
+    _norm_borders(cells)
+
+    col_w = (w_pt or (n_cols * 34.0)) / n_cols
+    raw_h = [float(h) if h else _DEFAULT_ROW_PT for h in (grid.get("row_heights") or [])]
+    raw_h = (raw_h + [_DEFAULT_ROW_PT] * n_rows)[:n_rows]
+    scale = (h_pt / sum(raw_h)) if h_pt else 1.0
+
+    grid_cols = "".join('<a:gridCol w="%d"/>' % _pt(col_w) for _ in range(n_cols))
+    trs = []
+    for r in range(n_rows):
+        tcs = []
+        for c in range(n_cols):
+            if (r, c) in hidden:
+                hh, hv = hidden[(r, c)]
+                tcs.append(_tc({"text": "", "style": {}}, 1, 1, hh, hv))
+                continue
+            span, vspan = spans.get((r, c), (1, 1))
+            tcs.append(_tc(cells[r][c], span, vspan, False, False))
+        trs.append('<a:tr h="%d">%s</a:tr>' % (_pt(raw_h[r] * scale), "".join(tcs)))
+
+    total_w = _pt(w_pt or n_cols * col_w)
+    total_h = _pt(sum(raw_h) * scale)
+    frame = ("<p:graphicFrame><p:nvGraphicFramePr>"
+             '<p:cNvPr id="%d" name="%s"/>'
+             '<p:cNvGraphicFramePr><a:graphicFrameLocks noGrp="1"/></p:cNvGraphicFramePr>'
+             "<p:nvPr/></p:nvGraphicFramePr>"
+             '<p:xfrm><a:off x="%d" y="%d"/><a:ext cx="%d" cy="%d"/></p:xfrm>'
+             '<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">'
+             '<a:tbl><a:tblPr firstRow="0" bandRow="0"/>'
+             '<a:tblGrid>%s</a:tblGrid>%s</a:tbl>'
+             "</a:graphicData></a:graphic></p:graphicFrame>") % (
+                 shape_id, _esc(name), _pt(x_pt), _pt(y_pt), total_w, total_h,
+                 grid_cols, "".join(trs))
+    return frame, {"rows": n_rows, "cols": n_cols, "merged": len(spans),
+                   "w_pt": round(w_pt or n_cols * col_w, 1), "h_pt": round(sum(raw_h) * scale, 1)}
+
+
+def add_table(path: str, *, xlsx_path: str, ref: str, sheet: str | None = None,
+              index: int | None = None,
+              slide: int = 1, x_pt: float = 40.0, y_pt: float = 40.0,
+              w_pt: float | None = None, h_pt: float | None = None,
+              name: str = "office-docs-table", out: str | None = None, force: bool = False) -> dict:
+    """把 xlsx 的一个区域作为**原生表格**插到指定页最上层（只追加形状，不动已有内容）。
+
+    `sheet` 按**显示名**选表、`index` 按**序号**选（两者常不一致：WPS 里显示 `Sheet3`、部件 `sheet1.xml`）。
+    """
+    if out is None and not force and _is_readonly_baseline(path):
+        raise PptxError(f"拒绍就地改写模板基线：{path}（另存用 --out，确需就地加 --force）")
+    info = grid(xlsx_path, sheet, ref, index)
+    infos, data = load(path)
+    slide_name = "ppt/slides/slide%d.xml" % int(slide)
+    if slide_name not in data:
+        raise PptxError(f"没有 {slide_name}")
+    xml = data[slide_name].decode("utf-8")
+    if "</p:spTree>" not in xml:
+        raise PptxError(f"{slide_name} 里找不到 <p:spTree>")
+    ids = [int(i) for i in re.findall(r'<p:cNvPr id="(\d+)"', xml)] or [1]
+    frame, meta = _table_xml(info, x_pt, y_pt, w_pt, h_pt, max(ids) + 1, name)
+    end = xml.rfind("</p:spTree>")
+    ext = xml.rfind("<p:extLst>", xml.find("<p:spTree>"), end)
+    xml = (xml[:ext] + frame + xml[ext:]) if ext != -1 else xml.replace("</p:spTree>", frame + "</p:spTree>")
+    ET.fromstring(xml)                                   # 写前自检
+    data[slide_name] = xml.encode("utf-8")
+    target = out or path
+    backup = None
+    if not out:
+        backup = "%s.bak.pptx" % os.path.splitext(path)[0]
+        shutil.copyfile(path, backup)
+    _write_verified(target, infos, data, backup)
+    return {"file": os.path.basename(target), "slide": int(slide), "ref": ref,
+            "source": os.path.basename(xlsx_path), "backup": backup, **meta}
+
+
+_CT_SLIDE = "application/vnd.openxmlformats-officedocument.presentationml.slide+xml"
+_REL_SLIDE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide"
+_REL_LAYOUT = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout"
+_PKG_RELS = "http://schemas.openxmlformats.org/package/2006/relationships"
+_XML_DECL = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+
+# 空白页骨架：自包含，只靠 `p:sld`＋一个指向 layout 的关系（零依赖拼字串，不用整套母版）
+_EMPTY_SLIDE = (
+    '<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"'
+    ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
+    ' xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">'
+    "<p:cSld><p:spTree>"
+    '<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>'
+    '<p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/>'
+    '<a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>'
+    "</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>")
+
+
+def _join_last_section(pres: str, sid: int) -> str:
+    """把新页的 `sldId` 追加到**最后一个分节**——分节存在时，未归节的页会让 PowerPoint 弹「修复」框。
+
+    实测（2026-09-20）：主 `sldIdLst` 有 9 个而各节合计只 7 个时，PowerPoint 打开即修复，
+    修复后文件变脆——**后续任何编辑（`fill-table` 等）都报 `-9074`**，且新页渲染为空白。
+    无分节的文件不受影响（`MT-076` 当时未复现即因模板无 `sectionLst`）。
+    """
+    secs = list(re.finditer(r"<p14:section\b[^>]*>.*?</p14:section>", pres, re.S))
+    if not secs:
+        return pres
+    last = secs[-1]
+    inner = re.search(r"<p14:sldIdLst>.*?</p14:sldIdLst>", last.group(0), re.S)
+    if inner is None:
+        return pres
+    seg = last.group(0)
+    new_seg = (seg[:inner.end()].replace(
+        "</p14:sldIdLst>", '<p14:sldId id="%d"/></p14:sldIdLst>' % sid) + seg[inner.end():])
+    return pres[:last.start()] + new_seg + pres[last.end():]
+
+
+def add_slide(path: str, *, layout: int = 1, out: str | None = None,
+              force: bool = False) -> dict:
+    """在末尾**新增一页空白页**（可指定 `layout`），不动已有内容。
+
+    四件必须同时做的事（缺一个 PowerPoint 就报错／打不开）：新页部件＋新页自己的 rels、
+    `presentation.xml.rels` 的关系、`presentation.xml` 的 `sldIdLst` 条目、`[Content_Types].xml` 的 Override。
+    """
+    if out is None and not force and _is_readonly_baseline(path):
+        raise PptxError(f"拒绍就地改写模板基线：{path}（另存用 --out，确需就地加 --force）")
+    infos, data = load(path)
+    numbers = [int(SLIDE_RE.match(i.filename).group(1)) for i in infos if SLIDE_RE.match(i.filename)]
+    n = (max(numbers) + 1) if numbers else 1
+    layout_part = "ppt/slideLayouts/slideLayout%d.xml" % int(layout)
+    if layout_part not in data:
+        raise PptxError("没有 %s（模板自带 slideLayout1–14）" % layout_part)
+    slide_part, rels_part = "ppt/slides/slide%d.xml" % n, "ppt/slides/_rels/slide%d.xml.rels" % n
+
+    data[slide_part] = (_XML_DECL + _EMPTY_SLIDE).encode("utf-8")
+    data[rels_part] = (_XML_DECL + (
+        '<Relationships xmlns="%s"><Relationship Id="rId1" Type="%s"'
+        ' Target="../slideLayouts/slideLayout%d.xml"/></Relationships>'
+        % (_PKG_RELS, _REL_LAYOUT, int(layout)))).encode("utf-8")
+
+    pres_rels_name, pres_name = "ppt/_rels/presentation.xml.rels", "ppt/presentation.xml"
+    pres_rels = data[pres_rels_name].decode("utf-8")
+    used = [int(x) for x in re.findall(r'Id="rId(\d+)"', pres_rels)] or [0]
+    rid = "rId%d" % (max(used) + 1)
+    data[pres_rels_name] = pres_rels.replace(
+        "</Relationships>",
+        '<Relationship Id="%s" Type="%s" Target="slides/slide%d.xml"/></Relationships>'
+        % (rid, _REL_SLIDE, n)).encode("utf-8")
+
+    pres = data[pres_name].decode("utf-8")
+    if "</p:sldIdLst>" not in pres:
+        raise PptxError("presentation.xml 里没有 <p:sldIdLst>")
+    ids = [int(x) for x in re.findall(r'<p:sldId id="(\d+)"', pres)] or [255]
+    sid = max(ids) + 1
+    data[pres_name] = _join_last_section(pres.replace(
+        "</p:sldIdLst>", '<p:sldId id="%d" r:id="%s"/></p:sldIdLst>' % (sid, rid)), sid).encode("utf-8")
+
+    ct_name = "[Content_Types].xml"
+    ct = data[ct_name].decode("utf-8")
+    if ("/%s" % slide_part) not in ct:
+        data[ct_name] = ct.replace(
+            "</Types>", '<Override PartName="/%s" ContentType="%s"/></Types>'
+            % (slide_part, _CT_SLIDE)).encode("utf-8")
+
+    for name in (slide_part, rels_part):           # 新条目追加到包末尾（OOXML 不要求顺序）
+        info = zipfile.ZipInfo(name, date_time=(2000, 1, 1, 0, 0, 0))
+        info.compress_type = zipfile.ZIP_DEFLATED
+        infos.append(info)
+    for name in (slide_part, rels_part, pres_rels_name, pres_name, ct_name):
+        ET.fromstring(data[name])                  # 写前自检
+
+    target = out or path
+    backup = None
+    if not out:
+        backup = "%s.bak.pptx" % os.path.splitext(path)[0]
+        shutil.copyfile(path, backup)
+    _write_verified(target, infos, data, backup)
+    return {"file": os.path.basename(target), "slide": n, "layout": int(layout),
+            "total_slides": n, "backup": backup}
+
+
+def del_shape(path: str, ref: str, *, out: str | None = None, force: bool = False) -> dict:
+    """删除一个形状／表格／图片（ref ＝ `slideN!sp[i]`／`slideN!gf[i]`／`slideN!pic[i]`）。
+
+    重生成一个对象时先删旧的（`add-table` 只能追加）；删后残留的图片关系／媒体文件无害，
+    PowerPoint 容忍孤儿 relationship。
+    """
+    if out is None and not force and _is_readonly_baseline(path):
+        raise PptxError(f"拒绍就地改写模板基线：{path}（另存用 --out，确需就地加 --force）")
+    m = re.match(r"^slide(\d+)!(sp|gf|pic|cx)\[(\d+)\]$", ref)
+    if not m:
+        raise PptxError("删除的 ref 只接受 `slideN!sp[i]`／`slideN!gf[i]`／`slideN!pic[i]`／`slideN!cx[i]`"
+                        "（表格用 gf[i]，**连线用 cx[i]**；与 `pptx dump` 里的顺序一致）")
+    infos, data = load(path)
+    slide_name = "ppt/slides/slide%d.xml" % int(m.group(1))
+    if slide_name not in data:
+        raise PptxError(f"没有 {slide_name}")
+    xml = data[slide_name].decode("utf-8")
+    s, e = _find_nth(_SHAPE_TAGS[m.group(2)], xml, int(m.group(3)))
+    removed = xml[s:e]
+    xml = xml[:s] + xml[e:]
+    ET.fromstring(xml)                                   # 写前自检
+    data[slide_name] = xml.encode("utf-8")
+    target = out or path
+    backup = None
+    if not out:
+        backup = "%s.bak.pptx" % os.path.splitext(path)[0]
+        shutil.copyfile(path, backup)
+    _write_verified(target, infos, data, backup)
+    return {"file": os.path.basename(target), "removed": ref, "chars": len(removed),
+            "backup": backup}
+
+
+def move_shape(path: str, ref: str, *, x_pt: float | None = None, y_pt: float | None = None,
+               dx_pt: float = 0.0, dy_pt: float = 0.0, out: str | None = None,
+               force: bool = False) -> dict:
+    """移动一个形状／表格／图片：改它的 `<a:off>`。给 `x_pt/y_pt` 则绝对定位，否则按 `dx_pt/dy_pt` 平移。
+
+    这是排期图的“时间移动”：x 轴是时间、y 轴是阶段，**移动模块就是改它的落点**，不靠文字描述。
+    """
+    if out is None and not force and _is_readonly_baseline(path):
+        raise PptxError(f"拒绍就地改写模板基线：{path}（另存用 --out，确需就地加 --force）")
+    m = re.match(r"^slide(\d+)!(sp|gf|pic|cx)\[(\d+)\]$", ref)
+    if not m:
+        raise PptxError("移动的 ref 只接受 `slideN!sp[i]`／`slideN!gf[i]`／`slideN!pic[i]`／`slideN!cx[i]`")
+    infos, data = load(path)
+    slide_name = "ppt/slides/slide%d.xml" % int(m.group(1))
+    if slide_name not in data:
+        raise PptxError(f"没有 {slide_name}")
+    xml = data[slide_name].decode("utf-8")
+    s, e = _find_nth(_SHAPE_TAGS[m.group(2)], xml, int(m.group(3)))
+    seg = xml[s:e]
+    off = _OFF_RE.search(seg)
+    if off is None:
+        raise PptxError(f"{ref} 里没有位置信息（`<a:off>`）")
+    old_x, old_y = int(off.group(1)), int(off.group(2))
+    new_x = _pt(x_pt) if x_pt is not None else old_x + _pt(dx_pt)
+    new_y = _pt(y_pt) if y_pt is not None else old_y + _pt(dy_pt)
+    new_seg = seg[:off.start()] + '<a:off x="%d" y="%d"/>' % (new_x, new_y) + seg[off.end():]
+    ET.fromstring(xml[:s] + new_seg + xml[e:])            # 写前自检
+    data[slide_name] = (xml[:s] + new_seg + xml[e:]).encode("utf-8")
+    target = out or path
+    backup = None
+    if not out:
+        backup = "%s.bak.pptx" % os.path.splitext(path)[0]
+        shutil.copyfile(path, backup)
+    _write_verified(target, infos, data, backup)
+    return {"file": os.path.basename(target), "ref": ref,
+            "from": {"x": old_x // 12700, "y": old_y // 12700},
+            "to": {"x": new_x // 12700, "y": new_y // 12700}, "backup": backup}
+
+
+def copy_shape(path: str, ref: str, *, text: str | None = None, x_pt: float | None = None,
+               y_pt: float | None = None, name: str | None = None, to_slide: int | None = None,
+               out: str | None = None, force: bool = False) -> dict:
+    """**克隆**一个形状（可同时改文字／落点／名字，可**跨页**到 `to_slide`）——"新增模块"与"拼图"靠它。
+
+    做法：复制原形状的整段 XML（连样式），换掉 `cNvPr id`（否则同页重号，PowerPoint 会报错）、
+    可选改 `<a:off>` 与新文字，插到目标页 `spTree` 末尾（最上层）。
+    """
+    if out is None and not force and _is_readonly_baseline(path):
+        raise PptxError(f"拒绍就地改写模板基线：{path}（另存用 --out，确需就地加 --force）")
+    m = re.match(r"^slide(\d+)!(sp|pic|cx|gf)\[(\d+)\]$", ref)
+    if not m:
+        raise PptxError("克隆的 ref 只接受 `slideN!sp[i]`／`pic[i]`／`cx[i]`／`gf[i]`（表格）")
+    infos, data = load(path)
+    src_slide, dst_slide = int(m.group(1)), int(to_slide or m.group(1))
+    src_name = "ppt/slides/slide%d.xml" % src_slide
+    dst_name = "ppt/slides/slide%d.xml" % dst_slide
+    if src_name not in data:
+        raise PptxError(f"没有 {src_name}")
+    if dst_name not in data:
+        raise PptxError(f"没有 {dst_name}")
+    s, e = _find_nth(_SHAPE_TAGS[m.group(2)], data[src_name].decode("utf-8"), int(m.group(3)))
+    seg = data[src_name].decode("utf-8")[s:e]
+    # 剥离 `p:custDataLst`（编辑标签的 tags 关系）：跨页克隆时 `r:id` 会指向**目标页不存在的关系**
+    # ⇒ PowerPoint 判定文件损坏并「修复」（实测：带 tags 的表格克隆到新页必触发，后续编辑报 -9074；
+    #    克隆到已有页则侥幸不报——因为 rId1 恰好指向了别的合法关系）。tags 只是编辑标记，无功能价值。
+    seg = re.sub(r"<p:custDataLst>.*?</p:custDataLst>", "", seg, flags=re.S)
+    if m.group(2) == "gf":                    # 表格：rowId 克隆后必须重编（重号会让 PowerPoint 丢行）
+        seen = [int(v) for v in re.findall(r'rowId[^>]*val="(\d+)"', seg)] or [0]
+        nxt = [max(seen) + 1]
+
+        def _reid(mm: re.Match) -> str:
+            v = nxt[0]
+            nxt[0] += 1
+            return "%s%d%s" % (mm.group(1), v, mm.group(3))
+
+        seg = re.sub(r'(rowId[^>]*val=")(\d+)(")', _reid, seg)
+    xml = data[dst_name].decode("utf-8")
+    ids = [int(i) for i in re.findall(r'<p:cNvPr id="(\d+)"', xml)] or [1]
+    new_id = max(ids) + 1
+    seg = re.sub(r'(<p:cNvPr id=")\d+(")', r"\g<1>%d\g<2>" % new_id, seg, count=1)
+    if name:
+        seg = re.sub(r'(<p:cNvPr id="%d"[^>]*name=")[^"]*(")' % new_id,
+                     r"\g<1>%s\g<2>" % _esc(name), seg, count=1)
+    if x_pt is not None or y_pt is not None:
+        off = _OFF_RE.search(seg)
+        if off is None:
+            raise PptxError(f"{ref} 没有位置信息（`<a:off>`）")
+        nx = _pt(x_pt) if x_pt is not None else int(off.group(1))
+        ny = _pt(y_pt) if y_pt is not None else int(off.group(2))
+        seg = seg[:off.start()] + '<a:off x="%d" y="%d"/>' % (nx, ny) + seg[off.end():]
+    if text is not None:
+        filled = _fill_empty(seg, text) if not runs(seg) else None
+        if filled is not None:
+            seg = filled
+        else:
+            out_parts, last = [], 0
+            for i, t in enumerate(T_RE.finditer(seg)):
+                out_parts.append(seg[last:t.start()]); last = t.end()
+                out_parts.append("<a:t>%s</a:t>" % (_esc(text) if i == 0 else ""))
+            out_parts.append(seg[last:])
+            seg = "".join(out_parts)
+    if "</p:spTree>" not in xml:
+        raise PptxError(f"{dst_name} 里找不到 <p:spTree>")
+    new_xml = xml.replace("</p:spTree>", seg + "</p:spTree>")
+    ET.fromstring(new_xml)                             # 写前自检
+    data[dst_name] = new_xml.encode("utf-8")
+    target = out or path
+    backup = None
+    if not out:
+        backup = "%s.bak.pptx" % os.path.splitext(path)[0]
+        shutil.copyfile(path, backup)
+    _write_verified(target, infos, data, backup)
+    return {"file": os.path.basename(target), "cloned_from": ref, "to_slide": dst_slide,
+            "new_id": new_id, "backup": backup}
+
+
+def reorder_shape(path: str, ref: str, *, to: str = "back", out: str | None = None,
+                  force: bool = False) -> dict:
+    """调 z-order：把形状／表格／图片移到同页的**最底**（`back`）或**最上**（`front`）。
+
+    用途：排期图里表不能压在模块上（否则模块看不见，“交叉排期”不成立）——把表 `--to back`。
+    """
+    if to not in ("back", "front"):
+        raise PptxError("to 只接受 back／front")
+    if out is None and not force and _is_readonly_baseline(path):
+        raise PptxError(f"拒绍就地改写模板基线：{path}（另存用 --out，确需就地加 --force）")
+    m = re.match(r"^slide(\d+)!(sp|gf|pic|cx)\[(\d+)\]$", ref)
+    if not m:
+        raise PptxError("reorder 的 ref 只接受 `slideN!sp[i]`／`slideN!gf[i]`／`slideN!pic[i]`／`slideN!cx[i]`")
+    infos, data = load(path)
+    slide_name = "ppt/slides/slide%d.xml" % int(m.group(1))
+    if slide_name not in data:
+        raise PptxError(f"没有 {slide_name}")
+    xml = data[slide_name].decode("utf-8")
+    s, e = _find_nth(_SHAPE_TAGS[m.group(2)], xml, int(m.group(3)))
+    seg, rest = xml[s:e], xml[:s] + xml[e:]
+    if to == "front":
+        new_xml = rest.replace("</p:spTree>", seg + "</p:spTree>")
+    else:
+        anchor = rest.find("</p:grpSpPr>")           # spTree 自身的 grpSpPr（第一个）
+        if anchor == -1 or anchor > rest.find("<p:sp>"):
+            raise PptxError("没找到 spTree 的 <p:grpSpPr>，不能定位最底层")
+        at = anchor + len("</p:grpSpPr>")
+        new_xml = rest[:at] + seg + rest[at:]
+    ET.fromstring(new_xml)                            # 写前自检
+    data[slide_name] = new_xml.encode("utf-8")
+    target = out or path
+    backup = None
+    if not out:
+        backup = "%s.bak.pptx" % os.path.splitext(path)[0]
+        shutil.copyfile(path, backup)
+    _write_verified(target, infos, data, backup)
+    return {"file": os.path.basename(target), "ref": ref, "to": to, "backup": backup}
+
+
+def _locate_table(xml: str, tbl_i: int) -> tuple[int, int]:
+    """定位第 `tbl_i` 个**含表**的 `<p:graphicFrame>` 的绝对区间。"""
+    n = 0
+    for m in re.finditer(GF_RE, xml, re.S):
+        if "<a:tbl>" not in m.group(0):
+            continue
+        if n == tbl_i:
+            return m.start(), m.end()
+        n += 1
+    raise PptxError(f"找不到第 {tbl_i} 个表格")
+
+
+def add_row(path: str, ref: str, *, count: int = 1, out: str | None = None,
+            force: bool = False) -> dict:
+    """往表格**末尾加行**：克隆最后一个数据行（保留样式与行高），并同步把表格高度加上去。
+
+    `ref` 形如 `slide2!tbl0`。加完的行是**空的**（文字已清），用 `pptx set` 逐格填。
+    不调高度的话行会被压扁（图形框 `cy` 不随行数变），所以这里一并调。
+    """
+    if count < 1:
+        raise PptxError("count 至少为 1")
+    if out is None and not force and _is_readonly_baseline(path):
+        raise PptxError(f"拒绍就地改写模板基线：{path}（另存用 --out，确需就地加 --force）")
+    m = re.match(r"^slide(\d+)!tbl(\d+)$", ref)
+    if not m:
+        raise PptxError("add-row 的 ref 只接受 `slideN!tbl{i}`")
+    infos, data = load(path)
+    slide_name = "ppt/slides/slide%d.xml" % int(m.group(1))
+    if slide_name not in data:
+        raise PptxError(f"没有 {slide_name}")
+    xml = data[slide_name].decode("utf-8")
+    s, e = _locate_table(xml, int(m.group(2)))
+    gf = xml[s:e]
+    rows = list(re.finditer(TR_RE, gf, re.S))
+    if not rows:
+        raise PptxError("表格里没有数据行可克隆")
+    last = rows[-1]
+    hm = re.search(r'<a:tr[^>]*h="(\d+)"', last.group(0))
+    row_h = int(hm.group(1)) if hm else _pt(_DEFAULT_ROW_PT)
+    # ⚠️ 行 ID 必须唯一：克隆会把 `a16:rowId` 一并复制，多行同 ID 时 **PowerPoint 会把重复行丢掉**
+    #（实测：加 8 行后只渲染出原来的 4 条，PDF 与 PowerPoint 都比 XML 少 12 行）
+    ids = [int(v) for v in re.findall(r'rowId[^>]*val="(\d+)"', gf)] or [0]
+    clones = []
+    for k in range(count):
+        c = T_RE.sub("<a:t></a:t>", last.group(0))              # 清掉克隆行里的文字
+        c = re.sub(r'(rowId[^>]*val=")\d+(")', r'\g<1>%d\g<2>' % (max(ids) + 1 + k), c, count=1)
+        clones.append(c)
+    gf_new = gf[:last.end()] + "".join(clones) + gf[last.end():]
+    ext = re.search(r'<a:ext cx="(\d+)" cy="(\d+)"/>', gf_new)
+    if ext is None:
+        raise PptxError("表格没有 <a:ext>，无法调高度")
+    new_cy = int(ext.group(2)) + row_h * count
+    gf_new = gf_new[:ext.start(2)] + str(new_cy) + gf_new[ext.end(2):]
+    new_xml = (xml[:s] + gf_new + xml[e:]).replace("</p:spTree>", "</p:spTree>", 1)
+    ET.fromstring(new_xml)                                    # 写前自检
+    data[slide_name] = (xml[:s] + gf_new + xml[e:]).encode("utf-8")
+    target = out or path
+    backup = None
+    if not out:
+        backup = "%s.bak.pptx" % os.path.splitext(path)[0]
+        shutil.copyfile(path, backup)
+    _write_verified(target, infos, data, backup)
+    return {"file": os.path.basename(target), "ref": ref, "added": count,
+            "rows": len(rows) + count, "cy_pt": new_cy // 12700, "backup": backup}
+
+
+def del_slide(path: str, ref: str, *, out: str | None = None, force: bool = False) -> dict:
+    """删除一页（`ref` 形如 `slide3`）：同步清 `sldIdLst`、**分节**、`presentation.xml.rels`、
+    `[Content_Types].xml` 与两个包条目。
+
+    ⚠️ 有 `p14:sectionLst` 时**必须一并从节里删该 sldId**——否则主列表与各节不一致，
+    PowerPoint 打开即弹「修复」（`add_slide` 的镜像问题，见 `_join_last_section`）。
+    删后页号留空洞、不重排（OOXML 允许，只要 rels 指得对）。
+    """
+    if out is None and not force and _is_readonly_baseline(path):
+        raise PptxError(f"拒绝就地改写模板基线：{path}（另存用 --out，确需就地加 --force）")
+    m = re.match(r"^slide(\d+)$", ref)
+    if not m:
+        raise PptxError("del-slide 的 ref 形如 `slide3`")
+    n = int(m.group(1))
+    infos, data = load(path)
+    slide_part, rels_part = "ppt/slides/slide%d.xml" % n, "ppt/slides/_rels/slide%d.xml.rels" % n
+    if slide_part not in data:
+        raise PptxError(f"没有 {slide_part}")
+    pres_name, pres_rels_name = "ppt/presentation.xml", "ppt/_rels/presentation.xml.rels"
+    pres, pres_rels = data[pres_name].decode("utf-8"), data[pres_rels_name].decode("utf-8")
+    rel = re.search(r'<Relationship Id="(rId\d+)"[^>]*Target="slides/slide%d\.xml"' % n, pres_rels)
+    if rel is None:
+        raise PptxError(f"{pres_rels_name} 里没有 slide{n} 的关系")
+    rid = rel.group(1)
+    sid_m = re.search(r'<p:sldId id="(\d+)" r:id="%s"/>' % rid, pres)
+    if sid_m is None:
+        raise PptxError(f"{pres_name} 里没有 r:id={rid} 的 sldId")
+    sid = sid_m.group(1)
+    pres = pres.replace(sid_m.group(0), "")                       # 主列表
+    pres = pres.replace('<p14:sldId id="%s"/>' % sid, "")         # 分节（若有）
+    pres_rels = re.sub(r'<Relationship Id="%s"[^>]*/>' % rid, "", pres_rels, count=1)
+    ct_name = "[Content_Types].xml"
+    ct = data[ct_name].decode("utf-8")
+    ct = re.sub(r'<Override PartName="/%s"[^>]*/>' % re.escape(slide_part), "", ct)
+    for name, new in ((pres_name, pres), (pres_rels_name, pres_rels), (ct_name, ct)):
+        ET.fromstring(new)                                        # 写前自检
+        data[name] = new.encode("utf-8")
+    infos = [i for i in infos if i.filename not in (slide_part, rels_part)]
+    for name in (slide_part, rels_part):
+        data.pop(name, None)
+    target = out or path
+    backup = None
+    if not out:
+        backup = "%s.bak.pptx" % os.path.splitext(path)[0]
+        shutil.copyfile(path, backup)
+    _write_verified(target, infos, data, backup)
+    return {"file": os.path.basename(target), "removed": ref, "sldId": sid, "rId": rid,
+            "total_slides": slide_count(target), "backup": backup}
+
+
+def del_row(path: str, ref: str, *, count: int = 1, out: str | None = None,
+            force: bool = False) -> dict:
+    """删表格**末尾** `count` 行（对称于 `add_row`），并同步减高度。
+
+    用途：把一张表克隆到新页后按目标行数裁掉多余行（克隆只能整表复制）。
+    """
+    if count < 1:
+        raise PptxError("count 至少为 1")
+    if out is None and not force and _is_readonly_baseline(path):
+        raise PptxError(f"拒绝就地改写模板基线：{path}（另存用 --out，确需就地加 --force）")
+    m = re.match(r"^slide(\d+)!tbl(\d+)$", ref)
+    if not m:
+        raise PptxError("del-row 的 ref 只接受 `slideN!tbl{i}`")
+    infos, data = load(path)
+    slide_name = "ppt/slides/slide%d.xml" % int(m.group(1))
+    if slide_name not in data:
+        raise PptxError(f"没有 {slide_name}")
+    xml = data[slide_name].decode("utf-8")
+    s, e = _locate_table(xml, int(m.group(2)))
+    gf = xml[s:e]
+    rows = list(re.finditer(TR_RE, gf, re.S))
+    if count >= len(rows):
+        raise PptxError(f"不能删光整表：现有 {len(rows)} 行，请求删 {count} 行")
+    victims = rows[-count:]
+    row_h = 0
+    for v in victims:
+        hm = re.search(r'<a:tr[^>]*h="(\d+)"', v.group(0))
+        row_h += int(hm.group(1)) if hm else _pt(_DEFAULT_ROW_PT)
+    gf_new = gf[:victims[0].start()] + gf[victims[-1].end():]
+    ext = re.search(r'<a:ext cx="(\d+)" cy="(\d+)"/>', gf_new)
+    if ext is None:
+        raise PptxError("表格没有 <a:ext>，无法调高度")
+    new_cy = max(int(ext.group(2)) - row_h, 0)
+    gf_new = gf_new[:ext.start(2)] + str(new_cy) + gf_new[ext.end(2):]
+    new_xml = xml[:s] + gf_new + xml[e:]
+    ET.fromstring(new_xml)                                    # 写前自检
+    data[slide_name] = new_xml.encode("utf-8")
+    target = out or path
+    backup = None
+    if not out:
+        backup = "%s.bak.pptx" % os.path.splitext(path)[0]
+        shutil.copyfile(path, backup)
+    _write_verified(target, infos, data, backup)
+    return {"file": os.path.basename(target), "ref": ref, "removed": count,
+            "rows": len(rows) - count, "cy_pt": new_cy // 12700, "backup": backup}
+
+
+def _set_cell_text(scope: str, text: str) -> str:
+    """单元格内写文字：空 → 建（继承段落属性）；单 run → 替换；多 run → 合并进首 run。
+
+    多 run 的合并**只在首个段落内**做——跨 `<a:p>` 合并会把后续段落的文字一并清空
+    （静默丢内容：风险表这类「一段多行」的单元格就是多段落）。
+    """
+    old_runs = runs(scope)
+    if not old_runs:
+        if not text:
+            return scope
+        filled = _fill_empty(scope, text)
+        return filled if filled is not None else scope
+    if len(old_runs) == 1:
+        if old_runs[0] == text:
+            return scope
+        m = T_RE.search(scope)
+        return scope[:m.start(2)] + _esc(text) + scope[m.end(2):]
+    pm = re.search(r"<a:p[ >].*?</a:p>", scope, re.S)
+    seg = pm.group(0) if pm else scope
+    out_parts, last = [], 0
+    for i, mm in enumerate(T_RE.finditer(seg)):
+        out_parts.append(seg[last:mm.start()])
+        last = mm.end()
+        out_parts.append("<a:t>%s</a:t>" % _esc(text if i == 0 else ""))
+    out_parts.append(seg[last:])
+    new_seg = "".join(out_parts)
+    return scope[:pm.start()] + new_seg + scope[pm.end():] if pm else new_seg
+
+
+def fill_table(path: str, ref: str, grid: list[list[str]], *, start_row: int = 0,
+               out: str | None = None, force: bool = False) -> dict:
+    """**批量**写表格单元格（一次落盘）：`ref` = `slideN!tbl{i}`，`grid` = 二维文本。
+
+    逐格 `set` 每次都要重打包整包（整表 ≈ 700 格 ⇒ 分钟级）；这里一次改完。
+    替换**从后往前**做——单元格文字长度会变，逆序应用才不会打乱未处理格的偏移。
+    多 run 单元格按 `--merge` 语义合并进首 run（整表重写时逐格挑 run 无意义）。
+    """
+    if out is None and not force and _is_readonly_baseline(path):
+        raise PptxError(f"拒绝就地改写模板基线：{path}（另存用 --out，确需就地加 --force）")
+    m = re.match(r"^slide(\d+)!tbl(\d+)$", ref)
+    if not m:
+        raise PptxError("fill-table 的 ref 只接受 `slideN!tbl{i}`")
+    infos, data = load(path)
+    slide_name = "ppt/slides/slide%d.xml" % int(m.group(1))
+    if slide_name not in data:
+        raise PptxError(f"没有 {slide_name}")
+    xml = data[slide_name].decode("utf-8")
+    s, e = _locate_table(xml, int(m.group(2)))
+    cells = []
+    for ri, tr in enumerate(re.finditer(TR_RE, xml[s:e], re.S)):
+        base = s + tr.start()
+        for ci, tc in enumerate(re.finditer(TC_RE, tr.group(0), re.S)):
+            cells.append((base + tc.start(), base + tc.end(), ri, ci))
+    written = skipped = 0
+    for cs, ce, ri, ci in reversed(cells):
+        r = ri - start_row
+        if r < 0 or r >= len(grid) or ci >= len(grid[r]):
+            skipped += 1
+            continue
+        scope = xml[cs:ce]
+        new_scope = _set_cell_text(scope, grid[r][ci])
+        if new_scope != scope:
+            xml = xml[:cs] + new_scope + xml[ce:]
+            written += 1
+    ET.fromstring(xml)                                    # 写前自检
+    data[slide_name] = xml.encode("utf-8")
+    target = out or path
+    backup = None
+    if not out:
+        backup = "%s.bak.pptx" % os.path.splitext(path)[0]
+        shutil.copyfile(path, backup)
+    _write_verified(target, infos, data, backup)
+    return {"file": os.path.basename(target), "ref": ref, "cells": written,
+            "skipped": skipped, "backup": backup}
+
+
+def set_row_height(path: str, ref: str, h_pt: float, *, out: str | None = None,
+                   force: bool = False) -> dict:
+    """把表格**所有行**的行高统一为 `h_pt`，并同步表高 `cy`（＝行数 × 行高）。
+
+    用途：行数增加后表会超出页面（960×540pt）——**超出部分被裁，PowerPoint 不报错**，
+    只有渲染校验才看得出（实测：表底 588pt 时末尾 3 行消失）。压行高是把它塞回页内的手段。
+    """
+    if out is None and not force and _is_readonly_baseline(path):
+        raise PptxError(f"拒绝就地改写模板基线：{path}（另存用 --out，确需就地加 --force）")
+    m = re.match(r"^slide(\d+)!tbl(\d+)$", ref)
+    if not m:
+        raise PptxError("row-height 的 ref 只接受 `slideN!tbl{i}`")
+    infos, data = load(path)
+    slide_name = "ppt/slides/slide%d.xml" % int(m.group(1))
+    if slide_name not in data:
+        raise PptxError(f"没有 {slide_name}")
+    xml = data[slide_name].decode("utf-8")
+    s, e = _locate_table(xml, int(m.group(2)))
+    gf = xml[s:e]
+    rows = len(re.findall(r"<a:tr[ >]", gf))
+    if rows == 0:
+        raise PptxError("表格没有行")
+    old = sorted({int(v) // 12700 for v in re.findall(r'<a:tr[^>]*\bh="(\d+)"', gf)})
+    new_h = _pt(h_pt)
+    gf_new = re.sub(r'(<a:tr[^>]*\bh=")\d+(")',
+                    lambda mm: mm.group(1) + str(new_h) + mm.group(2), gf)
+    ext = re.search(r'<a:ext cx="(\d+)" cy="(\d+)"/>', gf_new)
+    if ext is None:
+        raise PptxError("表格没有 <a:ext>，无法调高度")
+    new_cy = new_h * rows
+    gf_new = gf_new[:ext.start(2)] + str(new_cy) + gf_new[ext.end(2):]
+    new_xml = xml[:s] + gf_new + xml[e:]
+    ET.fromstring(new_xml)                                    # 写前自检
+    data[slide_name] = new_xml.encode("utf-8")
+    target = out or path
+    backup = None
+    if not out:
+        backup = "%s.bak.pptx" % os.path.splitext(path)[0]
+        shutil.copyfile(path, backup)
+    _write_verified(target, infos, data, backup)
+    return {"file": os.path.basename(target), "ref": ref, "rows": rows,
+            "from_pt": old, "to_pt": int(h_pt), "cy_pt": new_cy // 12700, "backup": backup}
+
+
+def set_table_font(path: str, ref: str, pt: float, *, out: str | None = None,
+                   force: bool = False) -> dict:
+    """把表格内**所有文字**字号统一为 `pt`（含 `rPr`／`endParaRPr`／`defRPr`）。
+
+    为什么要单独有它：`<a:tr h>` 是**最小**行高，内容撑开后 PowerPoint 会自行加高——
+    所以「压行高」压不进页面，**减字号才有效**（实测：21 行 22pt 行高仍超页，21 行末行被裁）。
+    """
+    if out is None and not force and _is_readonly_baseline(path):
+        raise PptxError(f"拒绝就地改写模板基线：{path}（另存用 --out，确需就地加 --force）")
+    m = re.match(r"^slide(\d+)!tbl(\d+)$", ref)
+    if not m:
+        raise PptxError("font-size 的 ref 只接受 `slideN!tbl{i}`")
+    infos, data = load(path)
+    slide_name = "ppt/slides/slide%d.xml" % int(m.group(1))
+    if slide_name not in data:
+        raise PptxError(f"没有 {slide_name}")
+    xml = data[slide_name].decode("utf-8")
+    s, e = _locate_table(xml, int(m.group(2)))
+    gf = xml[s:e]
+    old = sorted({int(v) // 100 for v in re.findall(r'<a:(?:rPr|endParaRPr|defRPr)\b[^>]*\bsz="(\d+)"', gf)})
+    new_sz = int(round(pt * 100))
+    gf_new = re.sub(r'(<a:(?:rPr|endParaRPr|defRPr)\b[^>]*\bsz=")\d+(")',
+                    lambda mm: mm.group(1) + str(new_sz) + mm.group(2), gf)
+    new_xml = xml[:s] + gf_new + xml[e:]
+    ET.fromstring(new_xml)                                    # 写前自检
+    data[slide_name] = new_xml.encode("utf-8")
+    target = out or path
+    backup = None
+    if not out:
+        backup = "%s.bak.pptx" % os.path.splitext(path)[0]
+        shutil.copyfile(path, backup)
+    _write_verified(target, infos, data, backup)
+    n = len(re.findall(r'<a:(?:rPr|endParaRPr|defRPr)\b[^>]*\bsz="\d+"', gf_new))
+    return {"file": os.path.basename(target), "ref": ref, "from_pt": old,
+            "to_pt": int(pt), "runs": n, "backup": backup}
+
+
+def resize_shape(path: str, ref: str, *, w_pt: float | None = None, h_pt: float | None = None,
+                 out: str | None = None, force: bool = False) -> dict:
+    """改形状尺寸：改它的 `<a:ext cx cy>`（pt）。
+
+    拼架构图时必需——克隆来的形状只有原尺寸，层次感靠“层框拉宽、模块框等高”做出来。
+    """
+    if out is None and not force and _is_readonly_baseline(path):
+        raise PptxError(f"拒绍就地改写模板基线：{path}（另存用 --out，确需就地加 --force）")
+    m = re.match(r"^slide(\d+)!(sp|pic)\[(\d+)\]$", ref)
+    if not m:
+        raise PptxError("resize 的 ref 只接受 `slideN!sp[i]`／`slideN!pic[i]`")
+    infos, data = load(path)
+    slide_name = "ppt/slides/slide%d.xml" % int(m.group(1))
+    if slide_name not in data:
+        raise PptxError(f"没有 {slide_name}")
+    xml = data[slide_name].decode("utf-8")
+    s, e = _find_nth(_SHAPE_TAGS[m.group(2)], xml, int(m.group(3)))
+    seg = xml[s:e]
+    ext = re.search(r'<a:ext cx="(\d+)" cy="(\d+)"/>', seg)
+    if ext is None:
+        raise PptxError(f"{ref} 里没有尺寸信息（`<a:ext>`）")
+    old_w, old_h = int(ext.group(1)), int(ext.group(2))
+    new_w = _pt(w_pt) if w_pt is not None else old_w
+    new_h = _pt(h_pt) if h_pt is not None else old_h
+    seg = seg[:ext.start()] + '<a:ext cx="%d" cy="%d"/>' % (new_w, new_h) + seg[ext.end():]
+    new_xml = xml[:s] + seg + xml[e:]
+    ET.fromstring(new_xml)                             # 写前自检
+    data[slide_name] = new_xml.encode("utf-8")
+    target = out or path
+    backup = None
+    if not out:
+        backup = "%s.bak.pptx" % os.path.splitext(path)[0]
+        shutil.copyfile(path, backup)
+    _write_verified(target, infos, data, backup)
+    return {"file": os.path.basename(target), "ref": ref,
+            "from": {"w": old_w // 12700, "h": old_h // 12700},
+            "to": {"w": new_w // 12700, "h": new_h // 12700}, "backup": backup}
+
+
+def add_shape(path: str, *, slide: int = 1, kind: str = "roundRect", x_pt: float = 0, y_pt: float = 0,
+              w_pt: float = 160, h_pt: float = 60, text: str = "", fill: str = "#0F9ED5",
+              line: str = "#FFFFFF", dash: str | None = None, line_w_pt: float = 1.0,
+              font_pt: float = 12, font_color: str = "#FFFFFF",
+              bold: bool = False, anchor: str = "ctr", align: str = "ctr", name: str | None = None,
+              out: str | None = None, force: bool = False) -> dict:
+    """**从零新建一个形状**（模块方框）——画容器图的积木。
+
+    `kind` 用 DrawingML 预设几何：`rect`／`roundRect`／`ellipse`／`hexagon`／`homePlate`…
+    `dash`（如 `dash`/`sysDash`）把边框改成虚线。
+    `anchor`（`t`/`ctr`/`b`）与 `align`（`l`/`ctr`/`r`）控文字对齐——**容器框的标题要
+    `--anchor t --align l`**（否则标题会跑到框中间）。
+    文本单行居中；节点 id 自追。拼图时不必克隆（克隆带源形状的样式包袱）。
+    """
+    if out is None and not force and _is_readonly_baseline(path):
+        raise PptxError(f"拒绍就地改写模板基线：{path}（另存用 --out，确需就地加 --force）")
+    infos, data = load(path)
+    slide_name = "ppt/slides/slide%d.xml" % int(slide)
+    if slide_name not in data:
+        raise PptxError(f"没有 {slide_name}")
+    xml = data[slide_name].decode("utf-8")
+    ids = [int(i) for i in re.findall(r'<p:cNvPr id="(\d+)"', xml)] or [1]
+    new_id = max(ids) + 1
+    rpr = '<a:rPr lang="zh-CN" sz="%d" dirty="0"' % int(round(font_pt * 100))
+    if bold:
+        rpr += ' b="1"'
+    rpr += '><a:solidFill><a:srgbClr val="%s"/></a:solidFill><a:latin typeface="等线"/></a:rPr>' \
+        % font_color.lstrip("#")
+    if anchor not in ("t", "ctr", "b") or align not in ("l", "ctr", "r"):
+        raise PptxError("anchor 只接受 t／ctr／b，align 只接受 l／ctr／r")
+    paras = [p for p in (text or "").split("\\n")] or [""]
+    para = "".join(
+        ('<a:p><a:pPr algn="%s"/><a:r>%s<a:t>%s</a:t></a:r></a:p>' % (align, rpr, _esc(p)))
+        if p else '<a:p><a:pPr algn="%s"/></a:p>' % align
+        for p in paras)
+    sp = (
+        '<p:sp><p:nvSpPr><p:cNvPr id="%d" name="%s"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>'
+        '<p:spPr><a:xfrm><a:off x="%d" y="%d"/><a:ext cx="%d" cy="%d"/></a:xfrm>'
+        '<a:prstGeom prst="%s"><a:avLst/></a:prstGeom>'
+        '<a:solidFill><a:srgbClr val="%s"/></a:solidFill>'
+        '<a:ln w="%d"><a:solidFill><a:srgbClr val="%s"/></a:solidFill>%s</a:ln>'
+        '</p:spPr><p:txBody><a:bodyPr anchor="%s" lIns="45720" tIns="27432" rIns="45720" bIns="27432"/><a:lstStyle/>%s</p:txBody></p:sp>'
+        % (new_id, _esc(name or ("%s-node" % kind)), _pt(x_pt), _pt(y_pt), _pt(w_pt), _pt(h_pt),
+           kind, fill.lstrip("#"), _pt(line_w_pt), line.lstrip("#"),
+           '<a:prstDash val="%s"/>' % dash if dash else "", anchor, para))
+    new_xml = xml.replace("</p:spTree>", sp + "</p:spTree>")
+    ET.fromstring(new_xml)
+    data[slide_name] = new_xml.encode("utf-8")
+    target = out or path
+    backup = None
+    if not out:
+        backup = "%s.bak.pptx" % os.path.splitext(path)[0]
+        shutil.copyfile(path, backup)
+    _write_verified(target, infos, data, backup)
+    return {"file": os.path.basename(target), "slide": int(slide), "id": new_id,
+            "at": {"x": int(x_pt), "y": int(y_pt), "w": int(w_pt), "h": int(h_pt)}, "backup": backup}
+
+
+def add_connector(path: str, *, slide: int = 1, x1_pt: float, y1_pt: float, x2_pt: float, y2_pt: float,
+                  style: str = "straight", arrow: bool = True, color: str = "#7F7F7F",
+                  dash: str | None = None, width_pt: float = 1.0,
+                  out: str | None = None, force: bool = False) -> dict:
+    """**画一条连接符**（`<p:cxnSp>`）——从 (x1,y1) 到 (x2,y2)，可带箭头。
+
+    `style`：`straight`（直线）／`elbow`（折线）／`curve`（曲线）。
+    用坐标而非形状绑定（`stCxn/endCxn`）：简单可控；形状移位时线不跟随，重画即可。
+    """
+    if out is None and not force and _is_readonly_baseline(path):
+        raise PptxError(f"拒绍就地改写模板基线：{path}（另存用 --out，确需就地加 --force）")
+    prst = {"straight": "straightConnector1", "elbow": "bentConnector3",
+            "curve": "curvedConnector3"}.get(style)
+    if prst is None:
+        raise PptxError("style 只接受 straight／elbow／curve")
+    infos, data = load(path)
+    slide_name = "ppt/slides/slide%d.xml" % int(slide)
+    if slide_name not in data:
+        raise PptxError(f"没有 {slide_name}")
+    xml = data[slide_name].decode("utf-8")
+    ids = [int(i) for i in re.findall(r'<p:cNvPr id="(\d+)"', xml)] or [1]
+    new_id = max(ids) + 1
+    x, y = min(x1_pt, x2_pt), min(y1_pt, y2_pt)
+    cx, cy = abs(x2_pt - x1_pt), abs(y2_pt - y1_pt)
+    flip_h = ' flipH="1"' if x2_pt < x1_pt else ""
+    flip_v = ' flipV="1"' if y2_pt < y1_pt else ""
+    ln = '<a:ln w="%d"><a:solidFill><a:srgbClr val="%s"/></a:solidFill>' % (
+        _pt(width_pt), color.lstrip("#"))
+    if dash:
+        ln += '<a:prstDash val="%s"/>' % dash
+    if arrow:
+        ln += '<a:tailEnd type="triangle" w="med" len="med"/>'
+    ln += "</a:ln>"
+    cxn = (
+        '<p:cxnSp><p:nvCxnSpPr><p:cNvPr id="%d" name="Connector %d"/><p:cNvCxnSpPr/><p:nvPr/>'
+        '</p:nvCxnSpPr><p:spPr><a:xfrm%s%s><a:off x="%d" y="%d"/><a:ext cx="%d" cy="%d"/></a:xfrm>'
+        '<a:prstGeom prst="%s"><a:avLst/></a:prstGeom>%s</p:spPr>'
+        '<p:style><a:lnRef idx="2"><a:schemeClr val="accent1"/></a:lnRef>'
+        '<a:fillRef idx="0"><a:schemeClr val="accent1"/></a:fillRef>'
+        '<a:effectRef idx="1"><a:schemeClr val="accent1"/></a:effectRef>'
+        '<a:fontRef idx="minor"><a:schemeClr val="lt1"/></a:fontRef></p:style></p:cxnSp>'
+        % (new_id, new_id, flip_h, flip_v, _pt(x), _pt(y), _pt(cx), _pt(cy), prst, ln))
+    new_xml = xml.replace("</p:spTree>", cxn + "</p:spTree>")
+    ET.fromstring(new_xml)
+    data[slide_name] = new_xml.encode("utf-8")
+    target = out or path
+    backup = None
+    if not out:
+        backup = "%s.bak.pptx" % os.path.splitext(path)[0]
+        shutil.copyfile(path, backup)
+    _write_verified(target, infos, data, backup)
+    return {"file": os.path.basename(target), "slide": int(slide), "id": new_id, "style": style,
+            "from": {"x": int(x1_pt), "y": int(y1_pt)}, "to": {"x": int(x2_pt), "y": int(y2_pt)},
+            "backup": backup}
+
+
+def text_map(path: str) -> dict[str, str]:
+    """`ref → 文本` 的扁平映射（`diff` 的输入）。"""
+    out: dict[str, str] = {}
+    for s in dump(path)["slides"]:
+        for sh in s["shapes"]:
+            out[sh["ref"]] = sh["text"]
+        for tb in s["tables"]:
+            for row in tb["cells"]:
+                for c in row:
+                    out[c["ref"]] = c["text"]
+    return out
+
+
+def diff(old: str, new: str) -> list[dict]:
+    """两份 pptx 的**文字级**差异（回填 md 用）。"""
+    a, b = text_map(old), text_map(new)
+    changes = []
+    for ref in sorted(set(a) | set(b)):
+        va, vb = a.get(ref), b.get(ref)
+        if va != vb:
+            changes.append({"ref": ref, "old": va, "new": vb})
+    return changes
+
+
+# ---------- 渲染校验（Office 自证） ----------
+
+# 实测通过（PowerPoint for Mac 16.112.4）：`open` **不返回对象**，必须取 `active presentation`。
+# ⚠️ 并且**必须先关掉其它文档**：若 PowerPoint 里已打开过同一文件，`open` 不会重载，
+#    渲染出来的是内存里的旧版本（实测：XML 已改、PDF 却是旧的，白排查半天）。
+_RENDER_SCRIPT = '''on run argv
+  set inPath to item 1 of argv
+  set outPath to item 2 of argv
+  tell application "Microsoft PowerPoint"
+    activate
+    close every presentation saving no
+    open (POSIX file inPath)
+    set pres to active presentation
+    save pres in (POSIX file outPath) as save as PDF
+    close pres saving no
+  end tell
+  return "OK"
+end run
+'''
+
+# 环境类错误（非 macOS／无 Office／未授权）——与“Office 打不开这个文件”分开报。
+_ENV_ERRORS = ("-1743", "-600", "not authorized", "not allowed", "isn't running",
+               "Can’t get application", "Can't get application")
+
+
+def slide_count(path: str) -> int:
+    infos, _ = load(path)
+    return len([n for n in (i.filename for i in infos) if SLIDE_RE.match(n)])
+
+
+def _pdf_pages(pdf_path: str) -> int | None:
+    """PDF 页数——只用于与 pptx 页数对账。
+
+    取**所有** `/Count` 的**最大值**：PDF 的页树可嵌套（根 Pages 的 Count 才是总数），
+    只取第一个匹配会命中中间节点而少算（实测：9 页的文件报 8 页）。
+    """
+    try:
+        with open(pdf_path, "rb") as fh:
+            blob = fh.read()
+    except OSError:
+        return None
+    counts = [int(v) for v in re.findall(rb"/Count\s+(\d+)", blob)]
+    if counts:
+        return max(counts)
+    return len(re.findall(rb"/Type\s*/Page[^s]", blob)) or None
+
+
+def render(path: str, out: str | None = None, timeout: int = 180) -> dict:
+    """用本机 PowerPoint 打开并导出 PDF——把“Office 能打开”变成工具自证。
+
+    费时且会拉起 Office UI，只在 `check --render` 时调用；PDF 默认落**系统临时目录**（不入仓）。
+    返回 `{"ok": bool, "unavailable": bool, ...}`：环境类错误（无 Office／未授权／超时）标 `unavailable`，
+    与“Office 打不开这个文件”（真失败）分开——前者不该拦住流程。
+    """
+    if sys.platform != "darwin":
+        return {"ok": False, "unavailable": True, "reason": "非 macOS：跳过渲染校验"}
+    if shutil.which("osascript") is None:
+        return {"ok": False, "unavailable": True, "reason": "无 osascript：跳过渲染校验"}
+    pdf = out or os.path.join(tempfile.gettempdir(),
+                              f"{os.path.splitext(os.path.basename(path))[0]}.render.pdf")
+    script = os.path.join(tempfile.gettempdir(), "office-docs-pptx-render.applescript")
+    with open(script, "w", encoding="utf-8") as fh:
+        fh.write(_RENDER_SCRIPT)
+    try:
+        proc = subprocess.run(["osascript", script, os.path.abspath(path), pdf],
+                              capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "unavailable": True,
+                "reason": f"渲染超时（{timeout}s）——PowerPoint 可能弹了对话框"}
+    err = (proc.stderr or proc.stdout).strip()
+    if proc.returncode != 0 or not os.path.isfile(pdf):
+        env = any(h in err for h in _ENV_ERRORS)
+        return {"ok": False, "unavailable": env,
+                "reason": err[:300] or "PowerPoint 未产出 PDF"}
+    pages, slides = _pdf_pages(pdf), slide_count(path)
+    ok = pages is None or pages == slides
+    return {"ok": ok, "unavailable": False, "pdf": pdf, "pages": pages, "slides": slides,
+            "reason": None if ok else f"渲染出 {pages} 页，源文件 {slides} 页——页数不符"}
+
+
+def check(path: str) -> list[str]:
+    """结构与完整性自检：条目名唯一、zip 可解、XML/rels 良构。"""
+    problems: list[str] = []
+    infos, data = load(path)
+    names = [i.filename for i in infos]
+    if len(names) != len(set(names)):
+        problems.append("条目名重复")
+    with zipfile.ZipFile(path) as z:
+        bad = z.testzip()
+        if bad:
+            problems.append(f"zip 数据损坏：{bad}")
+    for n, raw in data.items():
+        if n.endswith((".xml", ".rels")):
+            try:
+                ET.fromstring(raw)
+            except ET.ParseError as exc:
+                problems.append(f"{n} 不良构：{exc}")
+    return problems
+
+
+def _read_tsv(path: str) -> list[list[str]]:
+    """读 TSV 为二维文本（整表重写用）；空行跳过。"""
+    rows = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.rstrip("\n").rstrip("\r")
+            if line.strip() == "":
+                continue
+            rows.append(line.split("\t"))
+    return rows
+
+
+def _opt(args: list[str], name: str) -> str | None:
+    if name in args:
+        i = args.index(name)
+        if i + 1 < len(args):
+            return args[i + 1]
+    for a in args:
+        if a.startswith(name + "="):
+            return a.split("=", 1)[1]
+    return None
+
+
+def _flag(args: list[str], name: str) -> bool:
+    return name in args
+
+
+def _print(payload: dict | list, ctx: Context, human) -> None:
+    if ctx.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        human()
+
+
+def _dump_human(d: dict) -> None:
+    def geo(at) -> str:
+        return ("@(%d,%d) %d×%dpt" % (at["x"], at["y"], at["w"], at["h"])) if at else ""
+    print(f"{d['file']}")
+    for s in d["slides"]:
+        rows = []
+        for sh in s["shapes"]:
+            rows.append(f"  {sh['ref']:<22} runs={sh['runs']}  {geo(sh.get('at'))}  {sh['text'][:52]}")
+        for tb in s["tables"]:
+            rows.append(f"  {tb['ref']:<22} {tb['rows']}行×{tb['cols']}列  {geo(tb.get('at'))}")
+            for row in tb["cells"]:
+                line = " | ".join(c["text"].replace("/", "·")[:16] or "∅" for c in row)
+                rows.append(f"      r{row[0]['ref'].split('.r')[1].split('.')[0]:<2} {line}")
+        for cx in s.get("connectors", []):
+            kind = "虚线" if cx.get("dash") else "实线"
+            arrow = "→" if cx.get("arrow") else "—"
+            rows.append(f"  {cx['ref']:<22} 连线 {kind}{arrow}  从({cx['at']['x']},{cx['at']['y']})"
+                        f" {cx['at']['w']}×{cx['at']['h']}pt  #{cx.get('color') or ''}")
+        if rows:
+            print(f"slide{s['slide']}")
+            print("\n".join(rows))
+
+
+def pptx_main(args: list[str], ctx: Context) -> int:
+    if not args or args[0] in ("-h", "--help"):
+        print(USAGE)
+        return 0
+    cmd, rest = args[0], args[1:]
+
+    if cmd == "dump":
+        if not rest:
+            print(USAGE)
+            return 2
+        d = dump(rest[0])
+        _print(d, ctx, lambda: _dump_human(d))
+        return 0
+
+    if cmd == "find":
+        if len(rest) < 2:
+            print(USAGE)
+            return 2
+        hits = find(rest[0], rest[1])
+        _print(hits, ctx, lambda: print("\n".join(
+            f"{h['ref']:<22} runs={h['runs']}  {h['text'][:64]}" for h in hits) or "（未命中）"))
+        return 0 if hits else 1
+
+    if cmd == "set":
+        if not rest:
+            print(USAGE)
+            return 2
+        path, ref, text = rest[0], _opt(rest, "--at"), _opt(rest, "--text")
+        if not ref or text is None:
+            print("错误：set 需要 --at <ref> 与 --text <文本>", flush=True)
+            return 2
+        run = _opt(rest, "--run")
+        if ctx.dry_run or _flag(rest, "--dry-run"):
+            cur = text_map(path).get(ref) or "（空目标）"
+            print(f"[dry-run] {ref}\n  旧: {cur}\n  新: {text}")
+            return 0
+        res = set_text(path, ref, text, run=int(run) if run is not None else None,
+                            merge=_flag(rest, "--merge"), out=_opt(rest, "--out"),
+                            force=_flag(rest, "--force"))
+        _print(res, ctx, lambda: print(
+            f"{res['file']} ← {res['ref']}（{res['runs']} run）"
+            + (f"，备份 {res['backup']}" if res["backup"] else "")
+            + "\n" + "\n".join(f"  run{f['run']} 旧: {f['old']}\n         新: {f['new']}"
+                               for f in res["changed"])))
+        return 0
+
+    if cmd == "diff":
+        if len(rest) < 2:
+            print(USAGE)
+            return 2
+        changes = diff(rest[0], rest[1])
+        _print(changes, ctx, lambda: print("\n".join(
+            f"{c['ref']}\n  旧: {c['old']}\n  新: {c['new']}" for c in changes) or "（无文字差异）"))
+        return 0
+
+    if cmd == "add-slide":
+        if not rest:
+            print(USAGE)
+            return 2
+        layout = int(_opt(rest, "--layout") or 1)
+        if ctx.dry_run or _flag(rest, "--dry-run"):
+            print("[dry-run] 将新增一页空白页（layout %d）" % layout)
+            return 0
+        res = add_slide(rest[0], layout=layout, out=_opt(rest, "--out"),
+                             force=_flag(rest, "--force"))
+        _print(res, ctx, lambda: print("%s ← 新增 slide%d（layout%d，共 %d 页）%s" % (
+            res["file"], res["slide"], res["layout"], res["total_slides"],
+            "，备份 " + res["backup"] if res["backup"] else "")))
+        return 0
+
+    if cmd == "add-table":
+        if not rest:
+            print(USAGE)
+            return 2
+        path, src, ref = rest[0], _opt(rest, "--from"), _opt(rest, "--range")
+        if not src or not ref:
+            print("错误：add-table 需要 --from <xlsx> 与 --range <区域>（如 B4:AB6）")
+            return 2
+        at = [s for s in (_opt(rest, "--at") or "").split(",") if s]
+        size = [s for s in (_opt(rest, "--size") or "").split(",") if s]
+        x_pt = float(at[0]) if len(at) == 2 else 40.0
+        y_pt = float(at[1]) if len(at) == 2 else 40.0
+        w_pt, h_pt = (float(size[0]), float(size[1])) if len(size) == 2 else (None, None)
+        slide = int(_opt(rest, "--slide") or 1)
+        sheet = _opt(rest, "--sheet")
+        idx = _opt(rest, "--index")
+        index = int(idx) if idx else None
+        if ctx.dry_run or _flag(rest, "--dry-run"):
+            info = grid(src, sheet, ref, index)
+            print("[dry-run] 将把 %s!%s 的 %d×%d 表（合并 %d）放至 slide%d @(%.0f,%.0f)pt"
+                  % (src, info["sheet"], info["rows"], info["cols_n"], len(info["merged"]),
+                     slide, x_pt, y_pt))
+            return 0
+        res = add_table(path, xlsx_path=src, ref=ref, sheet=sheet, index=index, slide=slide,
+                             x_pt=x_pt, y_pt=y_pt, w_pt=w_pt, h_pt=h_pt,
+                             out=_opt(rest, "--out"), force=_flag(rest, "--force"))
+        _print(res, ctx, lambda: print(
+            "%s ← slide%d 新增表格 %d×%d（合并 %d），%.0f×%.0fpt%s"
+            % (res["file"], res["slide"], res["rows"], res["cols"], res["merged"],
+               res["w_pt"], res["h_pt"], "，备份 " + res["backup"] if res["backup"] else "")))
+        return 0
+
+    if cmd == "move-shape":
+        if not rest:
+            print(USAGE)
+            return 2
+        ref = _opt(rest, "--at")
+        to = [v for v in (_opt(rest, "--to") or "").split(",") if v]
+        by = [v for v in (_opt(rest, "--by") or "").split(",") if v]
+        if not ref or not to and not by:
+            print("错误：move-shape 需要 --at <ref> 与 --to x,y 或 --by dx,dy")
+            return 2
+        kw = ({"x_pt": float(to[0]), "y_pt": float(to[1])} if len(to) == 2
+              else {"dx_pt": float(by[0]), "dy_pt": float(by[1])})
+        if ctx.dry_run or _flag(rest, "--dry-run"):
+            print("[dry-run] 移动 %s → %s" % (ref, kw))
+            return 0
+        res = move_shape(rest[0], ref, out=_opt(rest, "--out"), force=_flag(rest, "--force"), **kw)
+        _print(res, ctx, lambda: print("%s ← %s 从 (%d,%d) 移到 (%d,%d)pt%s" % (
+            res["file"], res["ref"], res["from"]["x"], res["from"]["y"],
+            res["to"]["x"], res["to"]["y"],
+            "，备份 " + res["backup"] if res["backup"] else "")))
+        return 0
+
+    if cmd == "copy-shape":
+        if not rest:
+            print(USAGE)
+            return 2
+        ref = _opt(rest, "--at")
+        if not ref:
+            print("错误：copy-shape 需要 --at <ref>（`slideN!sp[i]`）")
+            return 2
+        to = [v for v in (_opt(rest, "--to") or "").split(",") if v]
+        kw = {"x_pt": float(to[0]), "y_pt": float(to[1])} if len(to) == 2 else {}
+        ts = _opt(rest, "--to-slide")
+        if ts:
+            kw["to_slide"] = int(ts)
+        if ctx.dry_run or _flag(rest, "--dry-run"):
+            print("[dry-run] 克隆 %s（文字 %r，位置 %s，目标页 %s）" % (ref, _opt(rest, "--text"), kw or "不变", ts or "同页"))
+            return 0
+        res = copy_shape(rest[0], ref, text=_opt(rest, "--text"), name=_opt(rest, "--name"),
+                              out=_opt(rest, "--out"), force=_flag(rest, "--force"), **kw)
+        _print(res, ctx, lambda: print("%s ← 已克隆 %s → slide%d（新 id=%d）%s" % (
+            res["file"], res["cloned_from"], res["to_slide"], res["new_id"],
+            "，备份 " + res["backup"] if res["backup"] else "")))
+        return 0
+
+    if cmd == "add-shape":
+        if not rest:
+            print(USAGE)
+            return 2
+        at = [v for v in (_opt(rest, "--at") or "").split(",") if v]
+        size = [v for v in (_opt(rest, "--size") or "").split(",") if v]
+        if len(at) != 2 or len(size) != 2:
+            print("错误：add-shape 需要 --at x,y 与 --size w,h")
+            return 2
+        kw = {"x_pt": float(at[0]), "y_pt": float(at[1]), "w_pt": float(size[0]), "h_pt": float(size[1]),
+              "text": _opt(rest, "--text") or "", "kind": _opt(rest, "--kind") or "roundRect",
+              "fill": _opt(rest, "--fill") or "#0F9ED5",
+              "line": _opt(rest, "--line") or "#FFFFFF",
+              "font_color": _opt(rest, "--font-color") or "#FFFFFF",
+              "dash": _opt(rest, "--dash"),
+              "line_w_pt": float(_opt(rest, "--line-width") or 1.0),
+              "font_pt": float(_opt(rest, "--font") or 12), "bold": _flag(rest, "--bold"),
+              "anchor": _opt(rest, "--anchor") or "ctr", "align": _opt(rest, "--align") or "ctr",
+              "slide": int(_opt(rest, "--slide") or 1), "out": _opt(rest, "--out"),
+              "force": _flag(rest, "--force")}
+        if ctx.dry_run or _flag(rest, "--dry-run"):
+            print("[dry-run] 在 slide%s 新建形状：%s" % (kw["slide"], kw))
+            return 0
+        res = add_shape(rest[0], **kw)
+        _print(res, ctx, lambda: print("%s ← slide%d 新建形状 %s @(%d,%d) %dx%d" % (
+            res["file"], res["slide"], res["at"], res["at"]["x"], res["at"]["y"], res["at"]["w"], res["at"]["h"])))
+        return 0
+
+    if cmd == "add-connector":
+        if not rest:
+            print(USAGE)
+            return 2
+        fr = [v for v in (_opt(rest, "--from") or "").split(",") if v]
+        to = [v for v in (_opt(rest, "--to") or "").split(",") if v]
+        if len(fr) != 2 or len(to) != 2:
+            print("错误：add-connector 需要 --from x,y 与 --to x,y")
+            return 2
+        kw = {"x1_pt": float(fr[0]), "y1_pt": float(fr[1]), "x2_pt": float(to[0]), "y2_pt": float(to[1]),
+              "style": _opt(rest, "--style") or "straight", "arrow": not _flag(rest, "--no-arrow"),
+              "color": _opt(rest, "--color") or "#7F7F7F", "dash": _opt(rest, "--dash"),
+              "width_pt": float(_opt(rest, "--width") or 1.0),
+              "slide": int(_opt(rest, "--slide") or 1), "out": _opt(rest, "--out"),
+              "force": _flag(rest, "--force")}
+        if ctx.dry_run or _flag(rest, "--dry-run"):
+            print("[dry-run] 在 slide%s 连线 %s→%s" % (kw["slide"], fr, to))
+            return 0
+        res = add_connector(rest[0], **kw)
+        _print(res, ctx, lambda: print("%s ← slide%d 连线 %s (%d,%d)→(%d,%d)" % (
+            res["file"], res["slide"], res["style"], res["from"]["x"], res["from"]["y"],
+            res["to"]["x"], res["to"]["y"])))
+        return 0
+
+    if cmd == "resize":
+        if not rest:
+            print(USAGE)
+            return 2
+        ref = _opt(rest, "--at")
+        size = [v for v in (_opt(rest, "--size") or "").split(",") if v]
+        if not ref or len(size) != 2:
+            print("错误：resize 需要 --at <ref> 与 --size w,h")
+            return 2
+        if ctx.dry_run or _flag(rest, "--dry-run"):
+            print("[dry-run] 把 %s 改成 %s×%s pt" % (ref, size[0], size[1]))
+            return 0
+        res = resize_shape(rest[0], ref, w_pt=float(size[0]), h_pt=float(size[1]),
+                                out=_opt(rest, "--out"), force=_flag(rest, "--force"))
+        _print(res, ctx, lambda: print("%s ← %s 尺寸 %sx%s → %sx%s pt" % (
+            res["file"], res["ref"], res["from"]["w"], res["from"]["h"],
+            res["to"]["w"], res["to"]["h"])))
+        return 0
+
+    if cmd == "reorder":
+        if not rest:
+            print(USAGE)
+            return 2
+        ref, to = _opt(rest, "--at"), (_opt(rest, "--to") or "back")
+        if not ref:
+            print("错误：reorder 需要 --at <ref> 与 --to back|front")
+            return 2
+        if ctx.dry_run or _flag(rest, "--dry-run"):
+            print("[dry-run] 将 %s 移到 %s" % (ref, to))
+            return 0
+        res = reorder_shape(rest[0], ref, to=to, out=_opt(rest, "--out"), force=_flag(rest, "--force"))
+        _print(res, ctx, lambda: print("%s ← %s 已移至%s%s" % (
+            res["file"], res["ref"], "最底层" if res["to"] == "back" else "最上层",
+            "，备份 " + res["backup"] if res["backup"] else "")))
+        return 0
+
+    if cmd == "add-row":
+        if not rest:
+            print(USAGE)
+            return 2
+        ref = _opt(rest, "--at")
+        if not ref:
+            print("错误：add-row 需要 --at <ref>（`slideN!tbl{i}`）")
+            return 2
+        n = int(_opt(rest, "--count") or 1)
+        if ctx.dry_run or _flag(rest, "--dry-run"):
+            print("[dry-run] 将给 %s 加 %d 行" % (ref, n))
+            return 0
+        res = add_row(rest[0], ref, count=n, out=_opt(rest, "--out"), force=_flag(rest, "--force"))
+        _print(res, ctx, lambda: print("%s ← %s 加 %d 行（现 %d 行，高 %dpt）%s" % (
+            res["file"], res["ref"], res["added"], res["rows"], res["cy_pt"],
+            "，备份 " + res["backup"] if res["backup"] else "")))
+        return 0
+
+    if cmd == "font-size":
+        if not rest:
+            print(USAGE)
+            return 2
+        ref = _opt(rest, "--at")
+        pt = _opt(rest, "--pt")
+        if not ref or not pt:
+            print("错误：font-size 需要 --at <slideN!tbl{i}> 与 --pt <字号>")
+            return 2
+        if ctx.dry_run or _flag(rest, "--dry-run"):
+            print("[dry-run] 将把 %s 表内字号统一为 %spt" % (ref, pt))
+            return 0
+        res = set_table_font(rest[0], ref, float(pt), out=_opt(rest, "--out"),
+                                  force=_flag(rest, "--force"))
+        _print(res, ctx, lambda: print("%s ← %s 字号 %s→%dpt（%d 处）%s" % (
+            res["file"], res["ref"], res["from_pt"], res["to_pt"], res["runs"],
+            "，备份 " + res["backup"] if res["backup"] else "")))
+        return 0
+
+    if cmd == "del-slide":
+        if not rest:
+            print(USAGE)
+            return 2
+        ref = _opt(rest, "--at")
+        if not ref:
+            print("错误：del-slide 需要 --at <slideN>")
+            return 2
+        if ctx.dry_run or _flag(rest, "--dry-run"):
+            print("[dry-run] 将删除 %s" % ref)
+            return 0
+        res = del_slide(rest[0], ref, out=_opt(rest, "--out"), force=_flag(rest, "--force"))
+        _print(res, ctx, lambda: print("%s ← 已删 %s（sldId=%s，余 %d 页）%s" % (
+            res["file"], res["removed"], res["sldId"], res["total_slides"],
+            "，备份 " + res["backup"] if res["backup"] else "")))
+        return 0
+
+    if cmd == "row-height":
+        if not rest:
+            print(USAGE)
+            return 2
+        ref = _opt(rest, "--at")
+        h = _opt(rest, "--pt")
+        if not ref or not h:
+            print("错误：row-height 需要 --at <slideN!tbl{i}> 与 --pt <行高(pt)>")
+            return 2
+        if ctx.dry_run or _flag(rest, "--dry-run"):
+            print("[dry-run] 将把 %s 各行高统一为 %spt" % (ref, h))
+            return 0
+        res = set_row_height(rest[0], ref, float(h), out=_opt(rest, "--out"),
+                                  force=_flag(rest, "--force"))
+        _print(res, ctx, lambda: print("%s ← %s %d 行统一行高 %dpt（表高 %dpt）%s" % (
+            res["file"], res["ref"], res["rows"], res["to_pt"], res["cy_pt"],
+            "，备份 " + res["backup"] if res["backup"] else "")))
+        return 0
+
+    if cmd == "del-row":
+        if not rest:
+            print(USAGE)
+            return 2
+        ref = _opt(rest, "--at")
+        if not ref:
+            print("错误：del-row 需要 --at <ref>（`slideN!tbl{i}`）")
+            return 2
+        n = int(_opt(rest, "--count") or 1)
+        if ctx.dry_run or _flag(rest, "--dry-run"):
+            print("[dry-run] 将给 %s 删 %d 行" % (ref, n))
+            return 0
+        res = del_row(rest[0], ref, count=n, out=_opt(rest, "--out"), force=_flag(rest, "--force"))
+        _print(res, ctx, lambda: print("%s ← %s 删 %d 行（现 %d 行，高 %dpt）%s" % (
+            res["file"], res["ref"], res["removed"], res["rows"], res["cy_pt"],
+            "，备份 " + res["backup"] if res["backup"] else "")))
+        return 0
+
+    if cmd == "fill-table":
+        if not rest:
+            print(USAGE)
+            return 2
+        ref = _opt(rest, "--at")
+        src = _opt(rest, "--from")
+        if not ref or not src:
+            print("错误：fill-table 需要 --at <slideN!tbl{i}> 与 --from <tsv 文件>")
+            return 2
+        if not os.path.isfile(src):
+            print("错误：找不到 %s" % src)
+            return 2
+        grid = _read_tsv(src)
+        if ctx.dry_run or _flag(rest, "--dry-run"):
+            print("[dry-run] 将给 %s 写 %d 行" % (ref, len(grid)))
+            return 0
+        res = fill_table(rest[0], ref, grid,
+                              start_row=int(_opt(rest, "--start-row") or 0),
+                              out=_opt(rest, "--out"), force=_flag(rest, "--force"))
+        _print(res, ctx, lambda: print("%s ← %s 写入 %d 格（未写 %d）%s" % (
+            res["file"], res["ref"], res["cells"], res["skipped"],
+            "，备份 " + res["backup"] if res["backup"] else "")))
+        return 0
+
+    if cmd == "del-shape":
+        if not rest:
+            print(USAGE)
+            return 2
+        ref = _opt(rest, "--at")
+        if not ref:
+            print("错误：del-shape 需要 --at <ref>（`slideN!sp[i]`／`gf[i]`／`pic[i]`）")
+            return 2
+        if ctx.dry_run or _flag(rest, "--dry-run"):
+            print("[dry-run] 将删除 %s" % ref)
+            return 0
+        res = del_shape(rest[0], ref, out=_opt(rest, "--out"), force=_flag(rest, "--force"))
+        _print(res, ctx, lambda: print("%s ← 已删除 %s（%d 字符）%s" % (
+            res["file"], res["removed"], res["chars"],
+            "，备份 " + res["backup"] if res["backup"] else "")))
+        return 0
+
+    if cmd == "media":
+        if not rest:
+            print(USAGE)
+            return 2
+        items = media(rest[0])
+        _print(items, ctx, lambda: print("\n".join(
+            f"{x['name']:<24} {x['bytes']:>8}B  {x['size']:<10}  used_by: {x['used_by'] or '—'}"
+            for x in items) or "（无媒体）"))
+        return 0
+
+    if cmd == "put-image":
+        if not rest:
+            print(USAGE)
+            return 2
+        path, at, frm = rest[0], _opt(rest, "--at"), _opt(rest, "--from")
+        if not at or not frm:
+            print("错误：put-image 需要 --at <imageN.png> 与 --from <源图>")
+            return 2
+        if ctx.dry_run or _flag(rest, "--dry-run"):
+            print(f"[dry-run] 将把 {at} 替成 {frm}")
+            return 0
+        res = put_image(path, at, frm, out=_opt(rest, "--out"), force=_flag(rest, "--force"))
+        _print(res, ctx, lambda: print(
+            f"{res['file']} ← {res['target']}（{res['bytes']}，used_by {res['used_by'] or '—'}）"
+            + (f"，备份 {res['backup']}" if res["backup"] else "")
+            + (f"\n⚠ {res['aspect_warn']}" if res["aspect_warn"] else "")))
+        return 0
+
+    if cmd == "check":
+        if not rest:
+            print(USAGE)
+            return 2
+        path = rest[0]
+        problems = check(path)
+        rnd = render(path, out=_opt(rest, "--render-out")) if _flag(rest, "--render") else None
+
+        def human():
+            print("\n".join(problems) if problems
+                  else "自检通过（条目唯一／zip 完整／XML 良构）")
+            if rnd is None:
+                return
+            if rnd["ok"]:
+                extra = f"，导出 {rnd['pages']} 页 PDF" if rnd.get("pages") else ""
+                print(f"渲染校验：PowerPoint 打开成功{extra} → {rnd['pdf']}")
+            elif rnd["unavailable"]:
+                print(f"渲染校验：跳过（{rnd['reason']}）")
+            else:
+                print(f"渲染校验：失败——{rnd['reason']}")
+
+        _print({"problems": problems, "render": rnd}, ctx, human)
+        if problems:
+            return 1
+        if rnd is None or rnd["ok"]:
+            return 0
+        return 2 if rnd["unavailable"] else 1
+
+    print(f"未知子命令 {cmd}\n\n{USAGE}")
+    return 2
+
+
+def _style_brief(s: dict) -> str:
+    """样式摘要：底/字/字号/bold/字体/框（四边存在哪几边）。"""
+    if not s:
+        return ""
+    parts = []
+    if s.get("fill"):
+        parts.append("底" + s["fill"])
+    f = s.get("font") or {}
+    if f.get("color"):
+        parts.append("字" + f["color"])
+    if f.get("sz"):
+        parts.append(f"{f['sz']:g}pt")
+    if f.get("b"):
+        parts.append("bold")
+    if f.get("name"):
+        parts.append(f["name"])
+    sides = "".join(k for k in "lrtb" if (s.get("border") or {}).get(k))
+    if sides:
+        parts.append("框" + sides)
+    return "[" + " ".join(parts) + "]"
+
+
+def _dump_xlsx_human(d: dict) -> None:
+    print(f"{d['file']} :: {d['sheet']}  {d['dimension']}  合并 {len(d['merged'])} 处")
+    if d["cols"]:
+        print("  列宽:", ", ".join(f"{c['min']}–{c['max']}={c['width']}" for c in d["cols"]))
+    for row in d["rows"]:
+        cells = " ".join(
+            f"{c['ref']}「{c['text']}」{_style_brief(c['style'])}" for c in row["cells"] if c["text"])
+        print(f"  r{row['r']} h={row['h']}: {cells}")
+    if d["merged"]:
+        print("  合并:", "、".join(d["merged"]))
+
+
+def _dump_md_tables(src: str, tables: list[dict]) -> None:
+    print(f"{os.path.basename(src)} 共 {len(tables)} 个表格")
+    for t in tables:
+        note = f"  列数不齐 {t['ragged']} 行已补空" if t["ragged"] else ""
+        print(f"  {t['index']}. 第 {t['line']} 行 · {t['cols']} 列 · {len(t['rows'])} 数据行{note}")
+        print(f"     表头: {' / '.join(t['header'][:8])}")
+
+
+def xlsx_main(args: list[str], ctx: Context) -> int:
+    if not args or args[0] in ("-h", "--help"):
+        print(USAGE)
+        return 0
+    cmd, rest = args[0], args[1:]
+    if cmd == "dump":
+        if not rest:
+            print(USAGE)
+            return 2
+        idx = _opt(rest, "--index")
+        d = xlsx_dump(rest[0], _opt(rest, "--sheet"),
+                      index=int(idx) if idx else None, show_empty=_flag(rest, "--all"))
+        _print(d, ctx, lambda: _dump_xlsx_human(d))
+        return 0
+    if cmd == "from-md":
+        if not rest:
+            print(USAGE)
+            return 2
+        src = rest[0]
+        if not os.path.isfile(src):
+            print(f"错误：文件不存在：{src}", flush=True)
+            return 2
+        with open(src, encoding="utf-8") as f:
+            tables = parse_md_tables(f.read())
+        if not tables:
+            print(f"{src}：没有解析到管道表格", flush=True)
+            return 1
+        if _flag(rest, "--list"):
+            _dump_md_tables(src, tables)
+            return 0
+        out = _opt(rest, "--out")
+        if not out:
+            print("错误：from-md 需要 --out <目标.xlsx>（只想看表格用 --list）", flush=True)
+            return 2
+        pick = _opt(rest, "--table")
+        try:
+            idx = int(pick) if pick else 1
+        except ValueError:
+            print(f"错误：--table 需为序号（收到 {pick!r}）", flush=True)
+            return 2
+        if not 1 <= idx <= len(tables):
+            print(f"错误：{src} 只有 {len(tables)} 个表格（--table 1..{len(tables)}）", flush=True)
+            return 2
+        t = tables[idx - 1]
+        try:
+            res = write_table(out, t["header"], t["rows"],
+                                   sheet_name=_opt(rest, "--sheet") or "Sheet1",
+                                   force=_flag(rest, "--force"))
+        except XlsxError as e:
+            print(f"错误：{e}", flush=True)
+            return 2
+        _print(res, ctx, lambda: print(
+            f"{res['file']} :: {res['sheet']}  {res['rows']} 行 × {res['cols']} 列  "
+            f"{res['bytes']} 字节  ← {os.path.basename(src)} 第 {t['index']} 个表格"))
+        return 0
+    print(f"未知子命令 {cmd}\n\n{USAGE}")
+    return 2
+
+
+def dispatch(args: list[str], ctx: Context) -> int:
+    if not args or args[0] in ("-h", "--help"):
+        print(USAGE)
+        return 0
+    if args[0] == "pptx":
+        return pptx_main(args[1:], ctx)
+    if args[0] == "xlsx":
+        return xlsx_main(args[1:], ctx)
+    print(f"未知子域 {args[0]!r}\n\n{USAGE}")
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

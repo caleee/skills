@@ -15,6 +15,7 @@ Claude Code skill 集合 — 按需取用的可独立发布技能。
 | [agent-doctor](agent-doctor.md) | 本机多 agent 能力自检 — 一条命令核验配置是否真生效 | 装了一堆 agent 工具、担心“装了没生效” |
 | [agent-pipeline](agent-pipeline.md) | 跨 agent 工作流水线编排 — 七环闸门、随时中途接入、多计划串行、无人值守托管 | 想让 agent 按固定流程干活、且不污染上下文 |
 | [llm-wiki](llm-wiki.md) | 知识库体系与文档站工具链 — 三层模型、目录四理念、落库分流、lint/drift/nav CLI | 文档越用越乱、想目录可导航且能保鲜 |
+| [office-docs](office-docs.md) | 办公文档零依赖定点编辑 — PPTX 精确改（文字/形状/表格/连线/图片）、md→xlsx | 改汇报 pptx、做 xlsx 交付表 |
 
 更多能力见各 `SKILL.md`。
 
