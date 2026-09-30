@@ -98,8 +98,20 @@ def die(msg: str, code: int = 1):
     sys.exit(code)
 
 
-def skip(path: Path, cfg: dict) -> bool:
-    return any(part in cfg["lint.ignore"] for part in path.parts)
+def skip(rel: Path, cfg: dict) -> bool:
+    """按 `lint.ignore` 判定是否跳过。两类模式：
+
+      - **单段名**（如 `archive`）：出现在路径任一层即跳过；
+      - **子路径前缀**（如 `asset/tb2-mdm/raw`）：该前缀及其下全部跳过。
+
+    典型用途：源层素材目录（原始导出／单据／截图集）不参与 P1 目录预算
+    ——P1 只管「编译层的可读文档」，素材不是给人读的。
+    """
+    s = rel.as_posix()
+    for pat in cfg["lint.ignore"]:
+        if pat in rel.parts or s == pat or s.startswith(pat + "/"):
+            return True
+    return False
 
 
 # ─────────────────────────── check-deps / build / serve ───────────────────────────
@@ -310,8 +322,20 @@ def _lint_links(root: Path, files: list[Path]) -> list[str]:
 #: 规范页永不进站，不需被链接——孤儿检查跳过
 _ORPHAN_SKIP = re.compile(r"^(AGENTS|CLAUDE)\.md$")
 
+#: 从 `mkdocs.yml` 的 nav 提取页面路径（`- 标题: 路径.md`）
+_NAV_RE = re.compile(r":\s*(\S+\.md)\s*$", re.M)
 
-def _lint_orphans(root: Path, files: list[Path]) -> list[str]:
+
+def nav_paths(cfg: dict) -> set[str]:
+    """nav 里列出的页面路径（相对知识库根）——列出即算「被引用」。"""
+    f = cfg["_root"] / str(cfg["site.config"])
+    if not f.exists():
+        return set()
+    return set(_NAV_RE.findall(f.read_text(encoding="utf-8")))
+
+
+def _lint_orphans(root: Path, files: list[Path], nav: set[str] | None = None) -> list[str]:
+    nav = nav or set()
     referenced: set[Path] = set()
     for f in files:
         for target in LINK_RE.findall(f.read_text(encoding="utf-8")):
@@ -325,8 +349,10 @@ def _lint_orphans(root: Path, files: list[Path]) -> list[str]:
     for f in files:
         if f.name == "index.md" or _ORPHAN_SKIP.match(f.name):
             continue
+        if f.relative_to(root).as_posix() in nav:       # nav 列出即算被引用
+            continue
         if f.resolve() not in referenced:
-            out.append(f"[孤儿] {f.relative_to(root)}（无任何页面链接到它）")
+            out.append(f"[孤儿] {f.relative_to(root)}（无页面链接它，也不在 nav）")
     return out
 
 
@@ -357,7 +383,7 @@ def cmd_lint(cfg, a):
     if cfg["lint.broken_links"]:
         problems += _lint_links(root, files)
     if cfg["lint.orphans"]:
-        problems += _lint_orphans(root, files)
+        problems += _lint_orphans(root, files, nav_paths(cfg))
     if a.semantic or cfg.get("lint.semantic"):
         problems += _lint_semantic(root, files)
     for p in problems:
