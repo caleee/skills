@@ -9,7 +9,7 @@
 用法：
   llmwiki check-deps                    校验 mkdocs 及插件（含主版本硬上限）
   llmwiki build [--strict]              构建站点
-  llmwiki deploy [目录]                 构建（strict）并部署到目录
+  llmwiki deploy [目录] [--force]        构建（strict）并部署到目录（默认 <项目根>/dist）
   llmwiki serve [start|stop|status] [--full] [--with-dates] [--port N]
   llmwiki nav build                     由目录生成导航 .pages（落实 P4）
   llmwiki lint [--semantic] [--max N]   体检：目录预算 / 断链 / 孤儿 [＋语义]
@@ -24,6 +24,7 @@ import fnmatch
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -44,6 +45,7 @@ DEFAULTS: dict[str, object] = {
     "lint.max_children": 24,
     "lint.broken_links": True,
     "lint.orphans": True,
+    "lint.nav_coverage": True,                   # auto 模式下检查 `.pages` 空 nav（导航可达性）
     "lint.ignore": [".tmp", "archive", "node_modules", ".git"],
     "export.llms_txt": False,
 }
@@ -116,6 +118,8 @@ def skip(rel: Path, cfg: dict) -> bool:
 
 # ─────────────────────────── check-deps / build / serve ───────────────────────────
 DEPS = ["mkdocs", "mkdocs-material", "mkdocs-git-revision-date-localized-plugin"]
+#: `nav build` 产物的唯一消费者——`nav_mode=auto` 时属必需，其他模式仅提示
+NAV_DEPS = ["mkdocs-awesome-pages-plugin"]
 
 
 def _too_new(pkg: str, cap: int) -> str | None:
@@ -131,13 +135,21 @@ def _too_new(pkg: str, cap: int) -> str | None:
 
 
 def cmd_check_deps(cfg, a):
+    auto = str(cfg.get("site.nav_mode", "manual")) == "auto"
+    deps = DEPS + (NAV_DEPS if auto else [])
     missing, bad = [], []
-    for pkg in DEPS:
+    for pkg in deps:
         try:
             import importlib.metadata as md
             md.version(pkg)
         except Exception:
             missing.append(pkg)
+    if not auto:
+        try:
+            import importlib.metadata as md
+            print(f"· nav_mode=manual：{NAV_DEPS[0]} {md.version(NAV_DEPS[0])}（已装，非必需）")
+        except Exception:
+            pass
     for pkg, cap in MAX_MAJOR.items():
         if pkg not in missing and (msg := _too_new(pkg, cap)):
             bad.append(msg)
@@ -178,17 +190,59 @@ def cmd_build(cfg, a):
     return 0
 
 
+#: 部署标记：目标目录里出现它 = 上次就是本工具写的，重部署无需 `--force`
+DEPLOY_MARKER = ".llmwiki-deploy"
+
+
+def _deploy_dest(cfg: dict, dest: str | None, force: bool) -> tuple[Path, bool]:
+    """返回 `(目标目录, 是否需先清空)`；不合规目标直接 `die()`。
+
+    **绝对拒绝**（`--force` 也不能越过）：文件系统根、`$HOME` 及其祖先、项目根及其祖先；
+    目标落在知识库根或构建产物目录内部（会污染文档／删掉构建源）。
+    目标已存在且非空时：仅当带本工具标记（上次部署）或给了 `--force` 才允许覆盖。
+    """
+    root = cfg["_root"].resolve()
+    target = Path(dest).expanduser().resolve() if dest else (root / "dist")
+    home = Path.home().resolve()
+    docs = docs_dir(cfg).resolve()
+    src = (root / str(cfg["site.site_dir"])).resolve()
+
+    if target == target.parent:
+        die(f"拒绝：{target} 是文件系统根")
+    for label, p in (("$HOME", home), ("项目根", root)):
+        if target == p or target in p.parents:
+            die(f"拒绝：{target} 是 {label} 本身或其祖先")
+    for label, p in (("知识库根", docs), ("构建产物目录", src)):
+        if target == p or p in target.parents:
+            die(f"拒绝：{target} 在 {label} 内部（{p}）")
+
+    if not target.exists():
+        return target, False
+    if not target.is_dir():
+        die(f"拒绝：{target} 已存在且不是目录")
+    others = [e for e in target.iterdir() if e.name != DEPLOY_MARKER]
+    if (target / DEPLOY_MARKER).exists() or not others:
+        return target, True
+    if not force:
+        die(f"拒绝：{target} 已存在且非空（无 {DEPLOY_MARKER} 标记）；确认要覆盖请加 --force")
+    return target, True
+
+
 def cmd_deploy(cfg, a):
     """构建（strict）并复制产物到目标目录。"""
-    dest = Path(a.dest or "/tmp/llmwiki-deploy")
+    dest, clear = _deploy_dest(cfg, a.dest, a.force)
     cmd = [sys.executable, "-m", "mkdocs", "build", "-f", str(cfg["site.config"]), "--strict"]
     print("构建中（strict）…", flush=True)
     if subprocess.run(cmd, cwd=cfg["_root"], env=_mkdocs_env(cfg)).returncode != 0:
         die("构建失败")
     src = cfg["_root"] / str(cfg["site.site_dir"])
-    if dest.exists():
+    if not src.exists():
+        die(f"构建产物不存在：{src}")
+    if clear:
         shutil.rmtree(dest)
-    shutil.copytree(src, dest)
+    dest.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(src, dest, dirs_exist_ok=True)
+    (dest / DEPLOY_MARKER).write_text(f"{src}\n", encoding="utf-8")
     print(f"✓ 已部署 {src} → {dest}")
     return 0
 
@@ -260,28 +314,106 @@ def _h1(path: Path) -> str | None:
     return None
 
 
+_NAV_KEY_RE = re.compile(r"^(\s*)nav\s*:\s*(\[\s*\]\s*)?$")
+
+
+def _has_nav_items(lines: list[str], i: int, indent: int) -> bool:
+    """`lines[i]` 是 `nav:` 行时，其后是否存在更深缩进的列表项。"""
+    for ln in lines[i + 1:]:
+        if not ln.strip() or ln.lstrip().startswith("#"):
+            continue
+        return len(ln) - len(ln.lstrip()) > indent and ln.lstrip().startswith("-")
+    return False
+
+
+def _empty_nav_at(text: str) -> int | None:
+    """返回第一处**空 nav** 的行号（`nav: []` 或裸 `nav:` 且无列表项），没有则 `None`。"""
+    lines = text.splitlines()
+    for i, ln in enumerate(lines):
+        m = _NAV_KEY_RE.match(ln)
+        if m and not _has_nav_items(lines, i, len(m.group(1))):
+            return i
+    return None
+
+
+def _drop_empty_nav(text: str) -> str:
+    """删除**空** `nav` 键；非空 `nav` 原样保留（行级处理，不引入 YAML 依赖）。"""
+    lines = text.splitlines()
+    keep = []
+    for i, ln in enumerate(lines):
+        m = _NAV_KEY_RE.match(ln)
+        if m and not _has_nav_items(lines, i, len(m.group(1))):
+            continue
+        keep.append(ln)
+    return "\n".join(keep)
+
+
+def _set_title(text: str, title: str) -> str:
+    """设置顶层 `title` 键：存在即替换，不存在即前置。"""
+    lines = text.splitlines()
+    for i, ln in enumerate(lines):
+        if re.match(r"^title\s*:", ln):
+            lines[i] = f"title: {title}"
+            return "\n".join(lines)
+    return "\n".join([f"title: {title}", *lines])
+
+
+def render_pages(directory: Path) -> str | None:
+    """目录 → `.pages` 应写入的内容；`None` ＝ **不写盘**（交给 awesome-pages 自动列子项）。
+
+    语义要点（P0-2 教训）：`.pages` 里的**空 `nav: []` 会让 awesome-pages 丢弃该目录
+    全部子项**（只有 `meta.nav is None` 才自动列出），因此这里**绝不**用空 nav 当占位。
+    没有 `index.md`（或它没有 H1）时就只剩「去掉空 nav、保留手写键」这一件事，
+    结果为空即返回 `None`，由调用方决定是否删掉存量文件。
+
+    写入是**合并**而非重写：只增改顶层 `title`，只删空 `nav`，其余键（`hide`/`collapse`
+    ／非空 `nav` …）原样保留。
+    """
+    pages = directory / ".pages"
+    text = _drop_empty_nav(pages.read_text(encoding="utf-8") if pages.exists() else "")
+    index = directory / "index.md"
+    if index.exists() and (title := _h1(index)):
+        text = _set_title(text, title)
+    text = text.strip()
+    return text + "\n" if text else None
+
+
 def cmd_nav_build(cfg, a):
-    """为每个目录生成 `.pages`（MkDocs awesome-pages 插件读），使**目录即导航**。"""
+    """为每个目录生成/刷新 `.pages`（MkDocs awesome-pages 插件读），使**目录即导航**。"""
     root = docs_dir(cfg)
     if not root.exists():
         die(f"知识库根不存在：{root}")
-    n = 0
+    writes: list[tuple[Path, str]] = []
+    deletes: list[Path] = []
     for d in sorted([root, *[p for p in root.rglob("*") if p.is_dir()]]):
         if skip(d.relative_to(root), cfg):
             continue
-        if not any(f.suffix == ".md" for f in d.iterdir() if f.is_file()):
-            continue
-        title = _h1(d / "index.md") if (d / "index.md").exists() else None
         pages = d / ".pages"
-        body = f"title: {title}\n" if title else ""
-        if not body and pages.exists():
+        body = render_pages(d)
+        if body is None:
+            if pages.exists():            # 存量空 nav（或已空）⇒ 清掉，让子项回到导航
+                deletes.append(pages)
             continue
-        if a.dry_run:
-            print(f"（dry-run）{pages.relative_to(root)}  title={title or '（无 index，仅占位）'}")
+        if not any(f.suffix == ".md" for f in d.iterdir() if f.is_file()):
+            continue                      # 纯容器目录：不为它新建 .pages
+        if pages.exists() and pages.read_text(encoding="utf-8") == body:
             continue
-        pages.write_text(body or "nav: []\n", encoding="utf-8")
-        n += 1
-    print("（dry-run 结束）" if a.dry_run else f"✓ 已生成/刷新 {n} 个 .pages（目录即导航）")
+        writes.append((pages, body))
+    if deletes:
+        print(f"将清理 {len(deletes)} 个空 nav 的 .pages（其下页面重新回到导航）：")
+        for p in deletes:
+            print(f"  DELETE {p.relative_to(root).as_posix()}")
+        if not a.dry_run:
+            for p in deletes:
+                p.unlink()
+    if a.dry_run:
+        for p, body in writes:
+            print(f"（dry-run）WRITE {p.relative_to(root).as_posix()}  {body.splitlines()[0]}")
+        print(f"（dry-run 结束）计划写 {len(writes)} / 清理 {len(deletes)}")
+        return 0
+    for p, body in writes:
+        p.write_text(body, encoding="utf-8")
+    print(f"✓ 已生成/刷新 {len(writes)} 个 .pages，清理 {len(deletes)} 个空 nav（目录即导航）")
     return 0
 
 
@@ -356,6 +488,41 @@ def _lint_orphans(root: Path, files: list[Path], nav: set[str] | None = None) ->
     return out
 
 
+def _pages_empty_nav(pages: Path) -> bool:
+    return _empty_nav_at(pages.read_text(encoding="utf-8")) is not None
+
+
+def _lint_nav(root: Path, cfg: dict) -> list[str]:
+    """导航可达性（P0-3）：`nav_mode=auto` 下「目录即导航」的前提是 `.pages` 不隐藏子项。
+
+    只报**机械可判**的信号：`.pages` 里的空 `nav`（awesome-pages 会丢弃该目录全部子项）。
+    若是有意隐藏，正解是显式声明（或把目录加入 `lint.ignore`），而不是空 nav。
+    """
+    out: list[str] = []
+    hidden: set[Path] = set()
+    for pages in sorted(root.rglob(".pages")):
+        d = pages.parent
+        if skip(d.relative_to(root), cfg) or not _pages_empty_nav(pages):
+            continue
+        n = len([p for p in d.rglob("*.md") if not skip(p.relative_to(root), cfg)])
+        hidden.update(p for p in d.rglob("*.md") if not skip(p.relative_to(root), cfg))
+        out.append(f"[导航] {pages.relative_to(root).as_posix()} 的 nav 为空 ⇒ 其下 {n} 个页面"
+                   f"从侧边栏消失（有意隐藏请显式声明，或把该目录加入 lint.ignore）")
+    total = len(_collect_md(root, cfg))
+    print(f"· 导航覆盖 {total - len(hidden)}/{total} 页"
+          f"{f'（{len(hidden)} 页被空 nav 隐藏）' if hidden else ''}")
+    return out
+
+
+def _nav_hint(cfg: dict) -> None:
+    """提示 MkDocs 原生兜底：`validation.nav.omitted_files` 能抓住任何形式的「页面掉出导航」。"""
+    f = cfg["_root"] / str(cfg["site.config"])
+    if not f.exists() or "omitted_files" in f.read_text(encoding="utf-8"):
+        return
+    print("· 提示：可在 mkdocs.yml 声明 `validation.nav.omitted_files`（warn 级），"
+          "让 MkDocs 原生兜住「既不在 nav 也不在 not_in_nav」的页面")
+
+
 def _lint_semantic(root: Path, files: list[Path]) -> list[str]:
     """语义层（启发式）：过时标记、疑似矛盾。
 
@@ -382,12 +549,20 @@ def cmd_lint(cfg, a):
         problems += _lint_budget(root, cfg, max_children)
     if cfg["lint.broken_links"]:
         problems += _lint_links(root, files)
+    auto = str(cfg.get("site.nav_mode", "manual")) == "auto"
     if cfg["lint.orphans"]:
-        if str(cfg.get("site.nav_mode", "manual")) == "auto":
-            # P4（结构即导航）：所有 md 默认进导航 ⇒「孤儿」判据不适用
-            print("· nav_mode=auto（P4）：跳过孤儿检查（导航自动包含全部页面）")
+        if auto:
+            # P4（结构即导航）：所有 md 默认进导航 ⇒「孤儿」判据不适用；
+            # 但「默认进导航」的前提是 .pages 不隐藏子项 —— 由下面的导航可达性检查兜住。
+            print("· nav_mode=auto（P4）：孤儿检查不适用，改为导航可达性检查")
         else:
             problems += _lint_orphans(root, files, nav_paths(cfg))
+    elif auto:
+        print("· nav_mode=auto（P4）：孤儿检查已由配置关闭")
+    if cfg.get("lint.nav_coverage"):
+        problems += _lint_nav(root, cfg)
+    if auto:
+        _nav_hint(cfg)
     if a.semantic or cfg.get("lint.semantic"):
         problems += _lint_semantic(root, files)
     for p in problems:
@@ -486,7 +661,11 @@ def main(argv=None) -> int:
     p = sub.add_parser("build"); p.add_argument("--strict", action="store_true")
     p.set_defaults(fn=cmd_build)
 
-    p = sub.add_parser("deploy"); p.add_argument("dest", nargs="?"); p.set_defaults(fn=cmd_deploy)
+    p = sub.add_parser("deploy")
+    p.add_argument("dest", nargs="?", help=f"目标目录（默认 <项目根>/dist）")
+    p.add_argument("--force", action="store_true",
+                   help=f"目标已存在且非空、又无 {DEPLOY_MARKER} 标记时，确认覆盖")
+    p.set_defaults(fn=cmd_deploy)
 
     p = sub.add_parser("serve")
     p.add_argument("action", nargs="?", choices=["start", "stop", "status"], default="start")
