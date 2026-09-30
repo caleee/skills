@@ -16,6 +16,7 @@ import importlib.util
 import io
 import os
 import re
+import subprocess
 import tempfile
 import unittest
 from argparse import Namespace
@@ -299,15 +300,33 @@ class TestConfigWiring(Fixture):
     def test_export_default_from_config(self):
         self.md("a.md", "# A\n")
         self.cfg["export.llms_txt"] = True
-        code, _ = self.run_cli(wiki.cmd_export, Namespace(llms_txt=False, out=None))
+        code, _ = self.run_cli(wiki.cmd_export, Namespace(llms_txt=False, summary=False, out=None))
         self.assertEqual(code, 0)
         self.assertTrue((self.root / "docs" / "llms.txt").exists())
 
     def test_export_off_by_default_is_noop(self):
         self.md("a.md", "# A\n")
-        code, _ = self.run_cli(wiki.cmd_export, Namespace(llms_txt=False, out=None))
+        code, _ = self.run_cli(wiki.cmd_export, Namespace(llms_txt=False, summary=False, out=None))
         self.assertEqual(code, 0)
         self.assertFalse((self.root / "docs" / "llms.txt").exists())
+
+    def test_export_without_summary_is_unchanged(self):
+        self.md("a.md", "# A\n\nfrontmatter 描述应该被忽略\n")
+        self.cfg["export.llms_txt"] = True
+        self.run_cli(wiki.cmd_export, Namespace(llms_txt=False, summary=False, out=None))
+        self.assertEqual((self.root / "docs" / "llms.txt").read_text(encoding="utf-8"),
+                         f"# {self.root.name}\n\n- [A](a.md)\n")
+
+    def test_export_summary_prefers_frontmatter_then_first_paragraph(self):
+        self.md("a.md", '---\ndescription: 来自 frontmatter\n---\n\n# A\n\n正文首段\n')
+        self.md("b.md", "# B\n\n正文首段。\n\n其他\n")
+        self.md("c.md", "# C\n")
+        self.cfg["export.llms_txt"] = True
+        self.run_cli(wiki.cmd_export, Namespace(llms_txt=False, summary=True, out=None))
+        text = (self.root / "docs" / "llms.txt").read_text(encoding="utf-8")
+        self.assertIn("- [A](a.md) — 来自 frontmatter", text)
+        self.assertIn("- [B](b.md) — 正文首段。", text)
+        self.assertIn("- [C](c.md)\n", text)
 
 
 # ─────────────── M5 / M7 · 文档 ↔ 实现契约 ───────────────
@@ -348,6 +367,82 @@ class TestDocContract(unittest.TestCase):
             assert m is not None
             return m.group(1).strip()
         self.assertEqual(desc(ROOT_MD), desc(SKILL_MD))
+
+
+# ─────────────── M11 · nav_paths 认裸形式 ───────────────
+class TestNavPaths(Fixture):
+    def test_prefixed_and_bare_forms(self):
+        (self.root / "mkdocs.yml").write_text(
+            "site_name: t\nnav:\n  - 首页: index.md\n  - bare.md\n  - nested/page.md\n",
+            encoding="utf-8")
+        self.assertEqual(wiki.nav_paths(self.cfg), {"index.md", "bare.md", "nested/page.md"})
+
+    def test_missing_config_returns_empty(self):
+        (self.root / "mkdocs.yml").unlink()
+        self.assertEqual(wiki.nav_paths(self.cfg), set())
+
+
+# ─────────────── M13 · drift 限定上游子路径 ───────────────
+class TestDrift(Fixture):
+    GIT_ENV = {
+        "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+        "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
+    }
+
+    def _commit(self, repo: Path, when: str, path: str):
+        f = repo / path
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text("x\n", encoding="utf-8")
+        env = dict(os.environ, **self.GIT_ENV,
+                   GIT_AUTHOR_DATE=when, GIT_COMMITTER_DATE=when)
+        subprocess.run(["git", "add", "-A"], cwd=repo, check=True, env=env)
+        subprocess.run(["git", "commit", "-qm", when], cwd=repo, check=True, env=env)
+
+    def _repo(self, rel: str) -> Path:
+        d = self.root / rel
+        d.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q"], cwd=d, check=True)
+        return d
+
+    def setUp(self):
+        super().setUp()
+        self.up, self.an = self._repo("up"), self._repo("an")
+        self._commit(self.up, "2020-01-01T00:00:00", "src/a.md")
+        self._commit(self.an, "2020-06-01T00:00:00", "index.md")
+        self._commit(self.up, "2021-01-01T00:00:00", "noise/b.md")   # 与 src 无关的后续提交
+
+    def test_subpath_scoping(self):
+        src = wiki._git_last_commit(self.up, "src")
+        whole = wiki._git_last_commit(self.up)
+        analysis = wiki._git_last_commit(self.an)
+        self.assertIsNotNone(src)
+        self.assertIsNotNone(whole)
+        self.assertIsNotNone(analysis)
+        assert src and whole and analysis           # 仅用于类型收窄
+        self.assertLess(src, whole, "限定子路径后不应看到 noise/ 的后续提交")
+        self.assertLess(src, analysis, "src 在分析篇之前落笔")
+        self.assertIsNone(wiki._git_last_commit(self.up, "nope"))
+
+    def test_whole_repo_reports_drift_but_paths_does_not(self):
+        (self.root / ".llm-wiki.toml").write_text(
+            '[[drift.watch]]\nupstream = "up"\nanalysis = "an"\n', encoding="utf-8")
+        self.cfg = wiki.load_cfg(self.root)
+        code, out = self.run_cli(wiki.cmd_drift, Namespace())
+        self.assertEqual(code, 1, out)
+        self.assertIn("[漂移]", out)
+
+        (self.root / ".llm-wiki.toml").write_text(
+            '[[drift.watch]]\nupstream = "up"\nanalysis = "an"\npaths = ["src"]\n',
+            encoding="utf-8")
+        self.cfg = wiki.load_cfg(self.root)
+        code, out = self.run_cli(wiki.cmd_drift, Namespace())
+        self.assertEqual(code, 0, out)
+        self.assertIn("与上游同步", out)
+
+    def test_no_watch_configured(self):
+        code, out = self.run_cli(wiki.cmd_drift, Namespace())
+        self.assertEqual(code, 0)
+        self.assertIn("未配置 drift.watch", out)
 
 
 if __name__ == "__main__":

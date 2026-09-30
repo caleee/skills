@@ -50,6 +50,7 @@ ignore = [".tmp", "archive", "node_modules", ".git"]
 # [[drift.watch]]
 # upstream = "ext-repos/pm/pm-contract-component"
 # analysis = "docs/pm-code-analysis/components/pm-contract"
+# paths = ["src", "docs"]       # 可选：只看上游这若干子路径的最后 commit，避开整仓噪声
 
 [export]
 llms_txt = false           # 默认是否导出；true 时 `llmwiki export` 不传旗标也导出

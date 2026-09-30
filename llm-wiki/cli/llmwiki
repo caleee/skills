@@ -24,8 +24,6 @@
 from __future__ import annotations
 
 import argparse
-import fnmatch
-import json
 import os
 import re
 import shutil
@@ -476,8 +474,10 @@ def _lint_links(root: Path, files: list[Path]) -> list[str]:
 #: 规范页永不进站，不需被链接——孤儿检查跳过
 _ORPHAN_SKIP = re.compile(r"^(AGENTS|CLAUDE)\.md$")
 
-#: 从 `mkdocs.yml` 的 nav 提取页面路径（`- 标题: 路径.md`）
+#: 从 `mkdocs.yml` 的 nav 提取页面路径。两种写法都要认：
+#: `- 标题: 路径.md`（`_NAV_RE`）与 MkDocs 允许的裸形式 `- 路径.md`（`_NAV_BARE_RE`）。
 _NAV_RE = re.compile(r":\s*(\S+\.md)\s*$", re.M)
+_NAV_BARE_RE = re.compile(r"^\s*-\s+(\S+\.md)\s*$", re.M)
 
 
 def nav_paths(cfg: dict) -> set[str]:
@@ -485,7 +485,8 @@ def nav_paths(cfg: dict) -> set[str]:
     f = cfg["_root"] / str(cfg["site.config"])
     if not f.exists():
         return set()
-    return set(_NAV_RE.findall(f.read_text(encoding="utf-8")))
+    text = f.read_text(encoding="utf-8")
+    return set(_NAV_RE.findall(text)) | set(_NAV_BARE_RE.findall(text))
 
 
 def _lint_orphans(root: Path, files: list[Path], nav: set[str] | None = None) -> list[str]:
@@ -596,8 +597,10 @@ def cmd_lint(cfg, a):
 
 
 # ─────────────────────────── drift ───────────────────────────
-def _git_last_commit(path: Path) -> int | None:
-    r = subprocess.run(["git", "-C", str(path), "log", "-1", "--format=%ct", "--", "."],
+def _git_last_commit(path: Path, subpath: str = ".") -> int | None:
+    """`path` 中 `subpath` 下的最后一次 commit 时间。限子路径可避开整仓噪声
+    （上游大仓里一个无关的构建提交不该算作「分析篇过期」）。"""
+    r = subprocess.run(["git", "-C", str(path), "log", "-1", "--format=%ct", "--", subpath],
                        capture_output=True, text=True)
     return int(r.stdout.strip()) if r.stdout.strip().isdigit() else None
 
@@ -615,9 +618,11 @@ def cmd_drift(cfg, a):
             print(f"⚠ 路径不存在：{w['upstream']} 或 {w['analysis']}")
             out += 1
             continue
-        t_up, t_an = _git_last_commit(up), _git_last_commit(an)
+        subs = [up / p for p in (w.get("paths") or [])] or [up]
+        stamps = [t for t in (_git_last_commit(p) for p in subs) if t is not None]
+        t_up, t_an = (max(stamps) if stamps else None), _git_last_commit(an)
         if t_up is None or t_an is None:
-            print(f"⚠ {w['upstream']}：无法读取 git 时间（非 git 仓？）")
+            print(f"⚠ {w['upstream']}：无法读取 git 时间（非 git 仓？paths 写错？）")
             out += 1
             continue
         if t_up > t_an:
@@ -631,6 +636,49 @@ def cmd_drift(cfg, a):
 
 
 # ─────────────────────────── export / pdf ───────────────────────────
+def _frontmatter_description(path: Path) -> str | None:
+    """取 YAML frontmatter 的 `description:`——行级提取，不引入 YAML 依赖。"""
+    lines = path.read_text(encoding="utf-8").splitlines()
+    if not lines or lines[0].strip() != "---":
+        return None
+    for ln in lines[1:]:
+        if ln.strip() == "---":
+            return None
+        m = re.match(r"^description\s*:\s*(.+?)\s*$", ln)
+        if m:
+            return m.group(1).strip().strip("\"'")
+    return None
+
+
+def _body_lines(path: Path) -> list[str]:
+    """去掉 YAML frontmatter 之后的正文行。"""
+    lines = path.read_text(encoding="utf-8").splitlines()
+    if lines and lines[0].strip() == "---":
+        for i, ln in enumerate(lines[1:], 1):
+            if ln.strip() == "---":
+                return lines[i + 1:]
+    return lines
+
+
+def _first_paragraph(path: Path) -> str | None:
+    """首个非标题／非引用／非围栏代码的正文行。"""
+    in_fence = False
+    for ln in _body_lines(path):
+        s = ln.strip()
+        if s.startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence or not s or s[0] in "#>|!-*":
+            continue
+        return s
+    return None
+
+
+def _summary(path: Path, limit: int = 120) -> str:
+    text = " ".join((_frontmatter_description(path) or _first_paragraph(path) or "").split())
+    return text[:limit] + ("…" if len(text) > limit else "")
+
+
 def cmd_export(cfg, a):
     root = docs_dir(cfg)
     files = _collect_md(root, cfg)
@@ -641,7 +689,8 @@ def cmd_export(cfg, a):
     for f in files:
         rel = f.relative_to(root)
         title = _h1(f) or f.stem
-        lines.append(f"- [{title}]({rel.as_posix()})")
+        s = _summary(f) if a.summary else ""
+        lines.append(f"- [{title}]({rel.as_posix()})" + (f" — {s}" if s else ""))
     out = Path(a.out) if a.out else (root / "llms.txt")
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"✓ 已导出 {out}（{len(files)} 条）")
@@ -718,6 +767,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("drift").set_defaults(fn=cmd_drift)
 
     p = sub.add_parser("export"); p.add_argument("--llms-txt", action="store_true")
+    p.add_argument("--summary", action="store_true",
+                   help="每条附 frontmatter description（无则取首段）作为摘要")
     p.add_argument("--out"); p.set_defaults(fn=cmd_export)
 
     p = sub.add_parser("pdf")
