@@ -474,6 +474,8 @@ def render_pages(directory: Path) -> str | None:
 
 def cmd_nav_build(cfg, a):
     """为每个目录生成/刷新 `.pages`（MkDocs awesome-pages 插件读），使**目录即导航**。"""
+    if backend(cfg) == "vitepress":
+        return _nav_build_vitepress(cfg, a)
     root = docs_dir(cfg)
     if not root.exists():
         die(f"知识库根不存在：{root}")
@@ -508,6 +510,85 @@ def cmd_nav_build(cfg, a):
     for p, body in writes:
         p.write_text(body, encoding="utf-8")
     print(f"✓ 已生成/刷新 {len(writes)} 个 .pages，清理 {len(deletes)} 个空 nav（目录即导航）")
+    return 0
+
+
+#: vitepress 导航产物：全量重写，文件头标明 generated（与 `.pages` 的合并语义不同）
+SIDEBAR_AUTO = "sidebar.auto.mts"
+SIDEBAR_HEADER = ("// 由 `llmwiki nav build` 生成，请勿手改（generated, do not edit）。\n"
+                  "// 在 config.mts 里 `import sidebar from './sidebar.auto.mts'` 后挂到 themeConfig.sidebar。\n")
+
+
+def _vp_link(f: Path, root: Path) -> str:
+    rel = f.relative_to(root)
+    if f.stem == "index":
+        parent = rel.parent.as_posix()
+        return "/" if parent == "." else f"/{parent}/"
+    return "/" + rel.with_suffix("").as_posix()
+
+
+def _vp_dir_title(d: Path) -> str:
+    index = d / "index.md"
+    if index.exists() and (title := _h1(index)):
+        return title
+    return d.name
+
+
+def _vp_has_md(d: Path, root: Path, cfg: dict) -> bool:
+    return any(f.suffix == ".md" and not skip(f.relative_to(root), cfg)
+               for f in d.rglob("*.md"))
+
+
+def _sidebar_items(d: Path, root: Path, cfg: dict) -> list:
+    """目录 → sidebar items：index 链接打头 ＋ md 链接 ＋ 子目录分组（首组展开、其余折叠）。"""
+    items: list = []
+    for f in sorted(d.iterdir()):
+        if not f.is_file() or f.suffix != ".md" or skip(f.relative_to(root), cfg):
+            continue
+        if f.stem == "index":
+            items.insert(0, {"text": _h1(f) or f.stem, "link": _vp_link(f, root)})
+        else:
+            items.append({"text": _h1(f) or f.stem, "link": _vp_link(f, root)})
+    subs = sorted(p for p in d.iterdir()
+                  if p.is_dir() and p.name != ".vitepress"
+                  and not skip(p.relative_to(root), cfg) and _vp_has_md(p, root, cfg))
+    first = True
+    for sub in subs:
+        sub_items = _sidebar_items(sub, root, cfg)
+        if not sub_items:
+            continue
+        items.append({"text": _vp_dir_title(sub), "collapsed": (not first), "items": sub_items})
+        first = False
+    return items
+
+
+def _nav_build_vitepress(cfg, a) -> int:
+    """vitepress 后端：由目录生成 `sidebar.auto.mts`（全量重写）。"""
+    import json
+    root = docs_dir(cfg)
+    if not root.exists():
+        die(f"知识库根不存在：{root}")
+    side: dict = {}
+    for d in sorted([root, *[p for p in root.rglob("*") if p.is_dir()]]):
+        if d.name == ".vitepress" or skip(d.relative_to(root), cfg):
+            continue
+        items = _sidebar_items(d, root, cfg)
+        if not items:
+            continue
+        rel = d.relative_to(root).as_posix()
+        side["/" if rel == "." else f"/{rel}/"] = items
+    body = SIDEBAR_HEADER + "export default " + json.dumps(side, ensure_ascii=False, indent=2) + "\n"
+    dest = root / ".vitepress" / SIDEBAR_AUTO
+    rel_dest = dest.relative_to(cfg["_root"]).as_posix()
+    if a.dry_run:
+        print(f"（dry-run）WRITE {rel_dest}  {len(side)} 个 sidebar key")
+        return 0
+    if dest.exists() and dest.read_text(encoding="utf-8") == body:
+        print(f"= {rel_dest} 无变化")
+        return 0
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(body, encoding="utf-8")
+    print(f"✓ 已生成 {rel_dest}（{len(side)} 个 sidebar key）")
     return 0
 
 

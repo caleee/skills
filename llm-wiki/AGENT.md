@@ -48,7 +48,7 @@ llm-wiki/
 ## 扩展点
 
 - **新增 lint 规则**：在 `cli/llmwiki` 加 `_lint_xxx(root, cfg) -> list[str]`，返回**已带 `[标签]` 前缀的字符串**（`cmd_lint` 只做拼接与计数）；规则须**机械可判**（有明确判据），启发式类归 `--semantic`。
-- **新增 nav 生成器**：改 `render_pages(directory: Path) -> str | None`——返回值是 `.pages` 应写入的内容，`None` ＝ **不写盘**（该目录无需 `.pages`）；当前实现只增改顶层 `title`、只删空 `nav`，其余键原样保留（`nav build` 调它并负责写/删）。
+- **新增 nav 生成器**：mkdocs 侧改 `render_pages(directory: Path) -> str | None`——返回值是 `.pages` 应写入的内容，`None` ＝ **不写盘**（该目录无需 `.pages`）；当前实现只增改顶层 `title`、只删空 `nav`，其余键原样保留（`nav build` 调它并负责写/删）。vitepress 侧改 `_sidebar_items(directory, root, cfg)`（返回 items 列表，由 `_nav_build_vitepress` 拼成 sidebar 对象写 `sidebar.auto.mts`）。
 - **新增站点后端**：已有 mkdocs（默认）／vitepress（`site.backend` 切换）；再加后端时加分流分支，判据层不动。
 
 ## 与其它 skill 的边界

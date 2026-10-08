@@ -87,7 +87,7 @@ user-invocable: true
 | `llmwiki build` | 构建站点（strict 模式＝警告即失败） | mkdocs |
 | `llmwiki deploy` | 构建（strict）并部署到目录（默认 `<项目根>/dist`） | mkdocs |
 | `llmwiki serve` | 本地预览（默认增量构建） | mkdocs |
-| `llmwiki nav build` | **由目录生成导航**（`.pages`），落实 P4；只增改 `title`、清掉空 `nav` | — |
+| `llmwiki nav build` | **由目录生成导航**（mkdocs：`.pages`，只增改 `title`、清掉空 `nav`；vitepress：`sidebar.auto.mts` 全量重写），落实 P4 | — |
 | `llmwiki lint` | P1 目录预算／断链／导航可达性（`nav_mode=auto` 时以可达性检查替代孤儿检查）；语义层（待确认·过期标记密度）默认关 | — |
 | `llmwiki drift` | 上游仓（如被调研代码）演进 vs 我方分析篇的**时差** | git |
 | `llmwiki export` | 生成 AI 可消费出口 | — |

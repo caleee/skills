@@ -628,5 +628,65 @@ class TestVitepressBackend(VitepressFixture):
                 dest=str(self.root / "docs" / ".vitepress" / "dist"), force=True))
 
 
+# ─────────────────────── 09 · nav build → sidebar.auto.mts ───────────────────────
+class NavVitepressFixture(VitepressFixture):
+    def setUp(self):
+        super().setUp()
+        self.md("index.md", "# Home\n")
+        self.md("guide/index.md", "# 指南\n")
+        self.md("guide/a.md", "# A\n")
+        self.md("guide/b.md", "正文无标题\n")
+        self.md("guide/sub/index.md", "# 子\n")
+        self.md("guide/sub/c.md", "# C\n")
+        self.md("guide/sub2/z.md", "# Z\n")
+        (self.root / "docs" / "empty").mkdir()
+        vp = self.root / "docs" / ".vitepress"
+        vp.mkdir()
+        (vp / "config.mts").write_text("export default {}\n", encoding="utf-8")
+
+    def _side(self):
+        import json
+        code, out = self.run_cli(wiki.cmd_nav_build, Namespace(dry_run=False))
+        self.assertEqual(code, 0, out)
+        text = (self.root / "docs" / ".vitepress" / "sidebar.auto.mts").read_text(encoding="utf-8")
+        self.assertIn("generated, do not edit", text)
+        return json.loads(text.split("export default ", 1)[1])
+
+
+class TestNavVitepress(NavVitepressFixture):
+    def test_builds_sidebar_keys(self):
+        side = self._side()
+        self.assertEqual(set(side), {"/", "/guide/", "/guide/sub/", "/guide/sub2/"})
+        self.assertNotIn("/empty/", side)
+
+    def test_index_links_and_titles(self):
+        side = self._side()
+        guide = side["/guide/"]
+        self.assertEqual(guide[0], {"text": "指南", "link": "/guide/"})
+        by_link = {i["link"]: i["text"] for i in guide if "link" in i}
+        self.assertEqual(by_link["/guide/a"], "A")
+        self.assertEqual(by_link["/guide/b"], "b", "无 H1 时回落文件名")
+        self.assertEqual(side["/"][0], {"text": "Home", "link": "/"})
+
+    def test_subdir_group_collapsed_rule(self):
+        side = self._side()
+        groups = [i for i in side["/guide/"] if "items" in i]
+        self.assertEqual([g["text"] for g in groups], ["子", "sub2"])
+        self.assertFalse(groups[0]["collapsed"], "首组展开")
+        self.assertTrue(groups[1]["collapsed"], "其余折叠")
+        self.assertEqual(groups[0]["items"][0], {"text": "子", "link": "/guide/sub/"})
+
+    def test_dry_run_writes_nothing(self):
+        code, out = self.run_cli(wiki.cmd_nav_build, Namespace(dry_run=True))
+        self.assertEqual(code, 0, out)
+        self.assertFalse((self.root / "docs" / ".vitepress" / "sidebar.auto.mts").exists())
+
+    def test_idempotent(self):
+        self._side()
+        code, out = self.run_cli(wiki.cmd_nav_build, Namespace(dry_run=False))
+        self.assertEqual(code, 0)
+        self.assertIn("无变化", out)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
