@@ -543,5 +543,90 @@ class TestDrift(Fixture):
         self.assertIn("未配置 drift.watch", out)
 
 
+# ─────────────────────── 09 · vitepress backend 分发 ───────────────────────
+class VitepressFixture(Fixture):
+    def setUp(self):
+        super().setUp()
+        self.cfg["site.backend"] = "vitepress"
+        vpbin = self.root / "node_modules" / ".bin"
+        vpbin.mkdir(parents=True)
+        (vpbin / "vitepress").write_text("#!/bin/sh\n", encoding="utf-8")
+
+    def _ok_run(self, seen):
+        def fake_run(cmd, **k):
+            seen["cmd"] = cmd
+            return mock.Mock(returncode=0, stdout="v22.0.0\n")
+        return mock.patch.object(wiki.subprocess, "run", fake_run)
+
+    def _ns(self, **kw):
+        return Namespace(**kw)
+
+
+class TestVitepressBackend(VitepressFixture):
+    def test_default_backend_is_mkdocs(self):
+        cfg = wiki.load_cfg(self.root)
+        self.assertEqual(wiki.backend(cfg), "mkdocs")
+        self.assertEqual(wiki._build_dist(cfg), self.root / "site")
+
+    def test_invalid_backend_dies(self):
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            wiki.backend({"site.backend": "hugo"})
+
+    def test_vitepress_dist_default(self):
+        self.assertEqual(wiki._build_dist(self.cfg),
+                         self.root / "docs" / ".vitepress" / "dist")
+
+    def test_vitepress_dist_respects_override(self):
+        self.cfg["site.site_dir"] = "out"
+        self.assertEqual(wiki._build_dist(self.cfg), self.root / "out")
+
+    def test_check_deps_ok(self):
+        seen = {}
+        with mock.patch.object(wiki.shutil, "which", lambda *a, **k: "/usr/bin/node"), \
+                self._ok_run(seen):
+            code, out = self.run_cli(wiki.cmd_check_deps, Namespace())
+        self.assertEqual(code, 0, out)
+        self.assertIn("依赖齐全", out)
+
+    def test_check_deps_missing_node(self):
+        with mock.patch.object(wiki.shutil, "which", lambda *a, **k: None):
+            code, out = self.run_cli(wiki.cmd_check_deps, Namespace())
+        self.assertEqual(code, 1)
+
+    def test_check_deps_missing_pkg(self):
+        (self.root / "node_modules" / ".bin" / "vitepress").unlink()
+        with mock.patch.object(wiki.shutil, "which", lambda *a, **k: "/usr/bin/node"), \
+                self._ok_run({}):
+            code, out = self.run_cli(wiki.cmd_check_deps, Namespace())
+        self.assertEqual(code, 1)
+        self.assertIn("pnpm add -D vitepress", out)
+
+    def test_build_assembles_official_cli(self):
+        seen = {}
+        with self._ok_run(seen):
+            code, out = self.run_cli(wiki.cmd_build, Namespace(strict=False))
+        self.assertEqual(code, 0, out)
+        self.assertEqual(seen["cmd"][:2],
+                         [str(self.root / "node_modules" / ".bin" / "vitepress"), "build"])
+        self.assertEqual(seen["cmd"][2], str(self.root / "docs"))
+        self.assertIn(".vitepress/dist", out)
+
+    def test_deploy_uses_vitepress_dist(self):
+        dist = self.root / "docs" / ".vitepress" / "dist"
+        dist.mkdir(parents=True)
+        (dist / "index.html").write_text("<html/>", encoding="utf-8")
+        seen = {}
+        with self._ok_run(seen):
+            code, _ = self.run_cli(wiki.cmd_deploy, Namespace(dest=None, force=False))
+        self.assertEqual(code, 0)
+        self.assertTrue((self.root / "dist" / "index.html").exists())
+        self.assertEqual(seen["cmd"][1], "build")
+
+    def test_deploy_rejects_vitepress_dist_inside(self):
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            wiki.cmd_deploy(self.cfg, Namespace(
+                dest=str(self.root / "docs" / ".vitepress" / "dist"), force=True))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -126,6 +126,49 @@ def backend(cfg: dict) -> str:
     return b
 
 
+def _vitepress_bin(cfg: dict) -> Path:
+    """项目本地 vitepress 可执行文件；缺失即 die（只认本地，不静默 npx 下载）。"""
+    vp = cfg["_root"] / "node_modules" / ".bin" / "vitepress"
+    if not vp.exists():
+        die("缺少 vitepress（项目本地）：pnpm add -D vitepress vue")
+    return vp
+
+
+def _check_deps_vitepress(cfg: dict) -> int:
+    node = shutil.which("node")
+    if not node:
+        print("缺少依赖: node（先装 Node.js，再 pnpm add -D vitepress vue）")
+        return 1
+    r = subprocess.run([node, "--version"], capture_output=True, text=True)
+    print(f"· node {r.stdout.strip()}")
+    if not (cfg["_root"] / "node_modules" / ".bin" / "vitepress").exists():
+        print("缺少依赖: vitepress（项目本地）：pnpm add -D vitepress vue")
+        return 1
+    print("依赖齐全（node + 项目本地 vitepress）")
+    return 0
+
+
+def _vitepress_build(cfg: dict) -> int:
+    """vitepress 构建（官方 CLI）。注意：vitepress build 默认即 strict 语义
+    （死链即失败），`--strict` 在此无额外含义。"""
+    cmd = [str(_vitepress_bin(cfg)), "build", str(docs_dir(cfg))]
+    print("构建中…", flush=True)
+    rc = subprocess.run(cmd, cwd=cfg["_root"]).returncode
+    if rc != 0:
+        die("构建失败", rc)
+    print(f"已构建: {_build_dist(cfg)}/")
+    return 0
+
+
+def _build_dist(cfg: dict) -> Path:
+    """构建产物目录。mkdocs：`site.site_dir`（默认 `site/`，相对项目根）。
+    vitepress：默认 `<docs>/.vitepress/dist`（官方 outDir 默认）；用户显式配了
+    `site.site_dir` 则以配置为准（须与 `config.mts` 的 outDir 保持一致）。"""
+    if backend(cfg) == "vitepress" and str(cfg["site.site_dir"]) == str(DEFAULTS["site.site_dir"]):
+        return docs_dir(cfg) / ".vitepress" / "dist"
+    return cfg["_root"] / str(cfg["site.site_dir"])
+
+
 def die(msg: str, code: int = 1):
     print(f"✗ {msg}", file=sys.stderr)
     sys.exit(code)
@@ -166,6 +209,8 @@ def _too_new(pkg: str, cap: int) -> str | None:
 
 
 def cmd_check_deps(cfg, a):
+    if backend(cfg) == "vitepress":
+        return _check_deps_vitepress(cfg)
     auto = str(cfg["site.nav_mode"]) == "auto"
     deps = DEPS + (NAV_DEPS if auto else [])
     missing, bad = [], []
@@ -209,6 +254,8 @@ def _mkdocs_env(cfg: dict, with_dates: bool = True) -> dict:
 
 
 def cmd_build(cfg, a):
+    if backend(cfg) == "vitepress":
+        return _vitepress_build(cfg)
     cmd = [sys.executable, "-m", "mkdocs", "build",
            "-f", str(cfg["site.config"])]
     if a.strict:
@@ -236,7 +283,7 @@ def _deploy_dest(cfg: dict, dest: str | None, force: bool) -> tuple[Path, bool]:
     target = Path(dest).expanduser().resolve() if dest else (root / "dist")
     home = Path.home().resolve()
     docs = docs_dir(cfg).resolve()
-    src = (root / str(cfg["site.site_dir"])).resolve()
+    src = _build_dist(cfg).resolve()
 
     if target == target.parent:
         die(f"拒绝：{target} 是文件系统根")
@@ -261,12 +308,19 @@ def _deploy_dest(cfg: dict, dest: str | None, force: bool) -> tuple[Path, bool]:
 
 def cmd_deploy(cfg, a):
     """构建（strict）并复制产物到目标目录。"""
+    vp = backend(cfg) == "vitepress"
     dest, clear = _deploy_dest(cfg, a.dest, a.force)
-    cmd = [sys.executable, "-m", "mkdocs", "build", "-f", str(cfg["site.config"]), "--strict"]
-    print("构建中（strict）…", flush=True)
-    if subprocess.run(cmd, cwd=cfg["_root"], env=_mkdocs_env(cfg)).returncode != 0:
+    if vp:
+        cmd = [str(_vitepress_bin(cfg)), "build", str(docs_dir(cfg))]
+        print("构建中（vitepress 默认即 strict：死链即失败）…", flush=True)
+        env = None
+    else:
+        cmd = [sys.executable, "-m", "mkdocs", "build", "-f", str(cfg["site.config"]), "--strict"]
+        print("构建中（strict）…", flush=True)
+        env = _mkdocs_env(cfg)
+    if subprocess.run(cmd, cwd=cfg["_root"], env=env).returncode != 0:
         die("构建失败")
-    src = cfg["_root"] / str(cfg["site.site_dir"])
+    src = _build_dist(cfg)
     if not src.exists():
         die(f"构建产物不存在：{src}")
     if clear:
@@ -320,12 +374,21 @@ def cmd_serve(cfg, a):
     # start
     if _port_alive(port):
         die(f"端口 {port} 已被占用")
-    cmd = [sys.executable, "-m", "mkdocs", "serve",
-           "-f", str(cfg["site.config"]), "-a", f"127.0.0.1:{port}"]
-    if not a.full:
-        cmd.append("--dirty")                     # 增量：改一个 md ~0.2s
+    if backend(cfg) == "vitepress":
+        cmd = [str(_vitepress_bin(cfg)), "dev", str(docs_dir(cfg)),
+               "--host", "127.0.0.1", "--port", str(port)]
+        env = None
+        if a.full or a.with_dates:
+            print("· --full/--with-dates 是 mkdocs 语义，vitepress dev 常开全量监听，"
+                  "lastUpdated 由 config.mts 控制")
+    else:
+        cmd = [sys.executable, "-m", "mkdocs", "serve",
+               "-f", str(cfg["site.config"]), "-a", f"127.0.0.1:{port}"]
+        if not a.full:
+            cmd.append("--dirty")                 # 增量：改一个 md ~0.2s
+        env = _mkdocs_env(cfg, with_dates=a.with_dates)
     log = open(f"/tmp/llmwiki-{cfg['_root'].name}.log", "w")
-    child = subprocess.Popen(cmd, cwd=cfg["_root"], env=_mkdocs_env(cfg, with_dates=a.with_dates),
+    child = subprocess.Popen(cmd, cwd=cfg["_root"], env=env,
                              stdout=log, stderr=subprocess.STDOUT)
     _pidfile(cfg).write_text(str(child.pid))
     print(f"启动中… 首次构建约 10–40s（日志 {log.name}）")
