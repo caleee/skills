@@ -562,12 +562,9 @@ def _sidebar_items(d: Path, root: Path, cfg: dict) -> list:
     return items
 
 
-def _nav_build_vitepress(cfg, a) -> int:
-    """vitepress 后端：由目录生成 `sidebar.auto.mts`（全量重写）。"""
+def _sidebar_body(root: Path, cfg: dict) -> tuple:
+    """目录 → (sidebar 对象, sidebar.auto.mts 应写入的全文)。"""
     import json
-    root = docs_dir(cfg)
-    if not root.exists():
-        die(f"知识库根不存在：{root}")
     side: dict = {}
     for d in sorted([root, *[p for p in root.rglob("*") if p.is_dir()]]):
         if d.name == ".vitepress" or skip(d.relative_to(root), cfg):
@@ -577,7 +574,15 @@ def _nav_build_vitepress(cfg, a) -> int:
             continue
         rel = d.relative_to(root).as_posix()
         side["/" if rel == "." else f"/{rel}/"] = items
-    body = SIDEBAR_HEADER + "export default " + json.dumps(side, ensure_ascii=False, indent=2) + "\n"
+    return side, SIDEBAR_HEADER + "export default " + json.dumps(side, ensure_ascii=False, indent=2) + "\n"
+
+
+def _nav_build_vitepress(cfg, a) -> int:
+    """vitepress 后端：由目录生成 `sidebar.auto.mts`（全量重写）。"""
+    root = docs_dir(cfg)
+    if not root.exists():
+        die(f"知识库根不存在：{root}")
+    side, body = _sidebar_body(root, cfg)
     dest = root / ".vitepress" / SIDEBAR_AUTO
     rel_dest = dest.relative_to(cfg["_root"]).as_posix()
     if a.dry_run:
@@ -590,6 +595,20 @@ def _nav_build_vitepress(cfg, a) -> int:
     dest.write_text(body, encoding="utf-8")
     print(f"✓ 已生成 {rel_dest}（{len(side)} 个 sidebar key）")
     return 0
+
+
+def _lint_sidebar(root: Path, cfg: dict) -> list[str]:
+    """导航可达性（vitepress 版）：`sidebar.auto.mts` 是否存在且新鲜。"""
+    side, body = _sidebar_body(root, cfg)
+    dest = root / ".vitepress" / SIDEBAR_AUTO
+    rel_dest = dest.relative_to(root).as_posix()
+    total = len(_collect_md(root, cfg))
+    if not dest.exists():
+        return [f"[导航] {rel_dest} 缺失（跑 llmwiki nav build 生成，{len(side)} 个 sidebar key／{total} 页）"]
+    if dest.read_text(encoding="utf-8") != body:
+        return [f"[导航] {rel_dest} 已过期（目录变了，跑 llmwiki nav build 刷新）"]
+    print(f"· 导航覆盖 {len(side)} 个 sidebar key／{total} 页")
+    return []
 
 
 # ─────────────────────────── lint ───────────────────────────
@@ -763,8 +782,11 @@ def cmd_lint(cfg, a):
     elif auto:
         print("· nav_mode=auto（P4）：孤儿检查已由配置关闭")
     if auto and cfg["lint.nav_coverage"]:
-        problems += _lint_nav(root, cfg)
-        _nav_hint(cfg)
+        if backend(cfg) == "vitepress":
+            problems += _lint_sidebar(root, cfg)
+        else:
+            problems += _lint_nav(root, cfg)
+            _nav_hint(cfg)
     if semantic:
         problems += _lint_semantic(root, files)
     for p in problems:

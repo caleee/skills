@@ -688,5 +688,33 @@ class TestNavVitepress(NavVitepressFixture):
         self.assertIn("无变化", out)
 
 
+class TestLintSidebar(NavVitepressFixture):
+    def _lint(self):
+        return self.run_cli(wiki.cmd_lint, Namespace(semantic=False, max=None))
+
+    def test_missing_sidebar_reported(self):
+        code, out = self._lint()
+        self.assertEqual(code, 1)
+        self.assertIn("[导航] .vitepress/sidebar.auto.mts 缺失", out)
+
+    def test_fresh_sidebar_is_green(self):
+        self.run_cli(wiki.cmd_nav_build, Namespace(dry_run=False))
+        code, out = self._lint()
+        self.assertEqual(code, 0, out)
+        self.assertIn("导航覆盖", out)
+
+    def test_stale_sidebar_reported(self):
+        self.run_cli(wiki.cmd_nav_build, Namespace(dry_run=False))
+        self.md("guide/new.md", "# New\n")
+        code, out = self._lint()
+        self.assertEqual(code, 1)
+        self.assertIn("已过期", out)
+
+    def test_switch_off_disables_check(self):
+        self.cfg["lint.nav_coverage"] = False
+        code, out = self._lint()
+        self.assertEqual(code, 0, out)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
