@@ -99,6 +99,8 @@ user-invocable: true
 
 **配置**：项目根 `.llm-wiki.toml`（端口、目录映射、lint 开关、drift watch、pdf 主题映射）。无配置时用最小默认。
 
+**站点后端**（`site.backend`，默认 `mkdocs`）：`build`／`serve`／`deploy`／`check-deps` 按后端分流到对应官方 CLI——mkdocs 侧走 `mkdocs`，vitepress 侧走 `vitepress`（dev／build／preview），只认项目本地安装（`node_modules/.bin`），缺失即报错给安装命令（包管理默认 `pnpm`）。判据类命令栈无关（`lint`／`drift`／`export`／`pdf` 复用；`nav` 的输出端按后端切换，见 `nav build --help`）。
+
 ## §7 项目声明段（`AGENTS.md`）
 
 > **只写本 skill 独有取值**；落库分流字段（决策台账／计划／设计稿／时间线）归
@@ -113,6 +115,7 @@ user-invocable: true
 - 源层：`docs/raw/`
 - 出口层：`docs/dist/`
 - 站点配置：`mkdocs.yml`；机器可读配置：`.llm-wiki.toml`
+- 站点后端：`vitepress`（默认 `mkdocs`）
 - 目录预算：24（P1；`0` = 关闭）
 - 上锁文件：`mkdocs.yml`
 - 门禁：`tz docs --strict build`；体检：`tz docs lint`

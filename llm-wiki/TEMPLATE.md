@@ -16,6 +16,7 @@
 - 源层：`docs/raw/`（不可变素材）
 - 出口层：`docs/dist/`（唯一对外面）
 - 站点配置：`mkdocs.yml`；机器可读配置：`.llm-wiki.toml`
+- 站点后端：`vitepress`（默认 `mkdocs`；`build`/`serve`/`deploy` 走对应官方 CLI）
 - 目录预算：24（P1；`0` = 关闭校验）
 - 上锁文件：`mkdocs.yml`（其余上锁文件见「工作流水线」）
 - 门禁：`tz docs --strict build`；体检：`tz docs lint`
@@ -30,6 +31,8 @@
 root = "docs"              # 知识库根（MkDocs 的 docs_dir）
 site_dir = "site"          # 构建产物
 config = "mkdocs.yml"      # 站点配置
+backend = "mkdocs"           # 站点后端：mkdocs（默认）| vitepress
+                           # vitepress 侧只认项目本地安装，包管理默认 pnpm
 port = 8000                # 本地预览端口
 nav_mode = "auto"          # auto=由目录生成 .pages(P4) | manual=用 mkdocs.yml 的 nav
 

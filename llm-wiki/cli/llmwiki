@@ -44,6 +44,7 @@ DEFAULTS: dict[str, object] = {
     "site.config": "mkdocs.yml",
     "site.port": 8000,
     "site.nav_mode": "auto",                     # auto=P4 由目录生成 .pages
+    "site.backend": "mkdocs",                   # 站点后端：mkdocs（默认）| vitepress
     "lint.max_children": 24,
     "lint.broken_links": True,
     "lint.orphans": True,                        # manual 模式：无人链接且不在 nav 的页面
@@ -62,13 +63,14 @@ MAX_MAJOR = {"mkdocs": 1}
 def find_root(start: Path | None = None) -> Path:
     """向上找项目根，按标记类型**分轮**扫描（近的弱标记不得盖过远的强标记）。
 
-    轮次：① `.llm-wiki.toml`（显式配置）② `mkdocs.yml`（站点配置）③ `.git`（最后手段）。
+    轮次：① `.llm-wiki.toml`（显式配置）② `docs/.vitepress/`（vitepress 站点目录）
+    ③ `mkdocs.yml`（MkDocs 站点配置）④ `.git`（最后手段）。
     分轮而非「三者任一即返回」，是为了比赛 monorepo 内嵌小仓：内嵌仓有 `.git` 但
     通常无配置，若与 `mkdocs.yml` 同权，在小仓子目录里执行就会锁到小仓、静默用错配置。
     """
     cur = (start or Path.cwd()).resolve()
     candidates = [cur, *cur.parents]
-    for marker in (".llm-wiki.toml", "mkdocs.yml", ".git"):
+    for marker in (".llm-wiki.toml", "docs/.vitepress", "mkdocs.yml", ".git"):
         for d in candidates:
             if (d / marker).exists():
                 return d
@@ -114,6 +116,14 @@ def _root_from_env() -> Path | None:
 
 def docs_dir(cfg: dict) -> Path:
     return cfg["_root"] / str(cfg["site.root"])
+
+
+def backend(cfg: dict) -> str:
+    """站点后端：mkdocs（默认）| vitepress。未知值直接 die，不静默回落。"""
+    b = str(cfg.get("site.backend", "mkdocs"))
+    if b not in ("mkdocs", "vitepress"):
+        die(f"site.backend 非法：{b}（仅支持 mkdocs | vitepress）")
+    return b
 
 
 def die(msg: str, code: int = 1):

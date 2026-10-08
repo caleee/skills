@@ -36,20 +36,20 @@ llm-wiki/
 ├── TEMPLATE.md   项目声明段 + .llm-wiki.toml 模板
 ├── AGENT.md      本文件（运行时指引）
 ├── VERSION       semver（发布用）
-└── cli/llmwiki   CLI：stdlib-only 判据类 + 调用 mkdocs 的构建类
+└── cli/llmwiki   CLI：stdlib-only 判据类 + 按 site.backend 分流调用 mkdocs／vitepress 官方 CLI 的构建类
 ```
 
 - **配置有两条互不代替的读取路径**（判据见 `docs/adr/0005-llm-wiki.md` 决策表）：
   - **CLI（机器值）**：命令行参数 → `.llm-wiki.toml` → 内置默认。`AGENTS.md` 的声明段**不参与**。
   - **agent／人（自然语言）**：`AGENTS.md` 的 `## 知识库` 声明段 ＋ `.llm-wiki.toml`。
-  - 项目根定位：`--root` → `LLMWIKI_ROOT` 环境变量 → 向上按 `.llm-wiki.toml` → `mkdocs.yml` → `.git` **分轮**查找。
+  - 项目根定位：`--root` → `LLMWIKI_ROOT` 环境变量 → 向上按 `.llm-wiki.toml` → `docs/.vitepress/` → `mkdocs.yml` → `.git` **分轮**查找。
 - **CLI 写文件只发生在这些命令**：`nav build` 的 `.pages`；`build` / `deploy` 的站点产物与目标目录（`deploy` 另写 `.llmwiki-deploy` 标记）；`export` 的 `llms.txt`；`pdf` 的 `<outdir>/<stem>-N.mmd|.png` 与 `<stem>.pdf.md`。其余命令只读。
 
 ## 扩展点
 
 - **新增 lint 规则**：在 `cli/llmwiki` 加 `_lint_xxx(root, cfg) -> list[str]`，返回**已带 `[标签]` 前缀的字符串**（`cmd_lint` 只做拼接与计数）；规则须**机械可判**（有明确判据），启发式类归 `--semantic`。
 - **新增 nav 生成器**：改 `render_pages(directory: Path) -> str | None`——返回值是 `.pages` 应写入的内容，`None` ＝ **不写盘**（该目录无需 `.pages`）；当前实现只增改顶层 `title`、只删空 `nav`，其余键原样保留（`nav build` 调它并负责写/删）。
-- **新增站点后端**：目前仅 MkDocs；若换后端，替换 `build`/`serve` 的实现，判据层不动。
+- **新增站点后端**：已有 mkdocs（默认）／vitepress（`site.backend` 切换）；再加后端时加分流分支，判据层不动。
 
 ## 与其它 skill 的边界
 
