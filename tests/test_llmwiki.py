@@ -715,6 +715,21 @@ class TestLintSidebar(NavVitepressFixture):
         code, out = self._lint()
         self.assertEqual(code, 0, out)
 
+    def test_build_output_auto_ignored(self):
+        self.assertNotIn(".vitepress", wiki.load_cfg(self.root)["lint.ignore"])
+        (self.root / ".llm-wiki.toml").write_text(
+            '[site]\nbackend = "vitepress"\n', encoding="utf-8")
+        self.cfg = wiki.load_cfg(self.root)
+        self.assertIn(".vitepress", self.cfg["lint.ignore"])
+        assets = self.root / "docs" / ".vitepress" / "dist" / "assets"
+        assets.mkdir(parents=True)
+        for i in range(30):
+            (assets / f"f{i}.js").write_text("x", encoding="utf-8")
+        self.run_cli(wiki.cmd_nav_build, Namespace(dry_run=False))
+        code, out = self._lint()
+        self.assertEqual(code, 0, out)
+        self.assertNotIn(".vitepress/dist", out)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

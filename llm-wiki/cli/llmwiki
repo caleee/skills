@@ -96,6 +96,11 @@ def load_cfg(root: Path, cli_port: int | None = None) -> dict:
             die("需要 Python 3.11+ 才能解析 .llm-wiki.toml")
         cfg.update(flatten(tomllib.loads(f.read_text(encoding="utf-8"))))
     cfg["_root"] = root
+    if str(cfg.get("site.backend")) == "vitepress" and ".vitepress" not in cfg["lint.ignore"]:
+        # vitepress 构建产物默认落在 <docs>/.vitepress/dist（知识库根内部），
+        # lint／nav／export 必须自动跳过，否则一次 build 就报 P1 预算。用户若把
+        # site.site_dir 另指到 docs 内部，需自行追加到 lint.ignore。
+        cfg["lint.ignore"] = [*cfg["lint.ignore"], ".vitepress"]
     cfg["_watch"] = (tomllib.loads(f.read_text(encoding="utf-8"))
                      .get("drift", {}).get("watch", [])) if (tomllib is not None and f.exists()) else []
     if cli_port:
