@@ -674,7 +674,9 @@ class TestNavVitepress(NavVitepressFixture):
         self.assertEqual([g["text"] for g in groups], ["子", "sub2"])
         self.assertFalse(groups[0]["collapsed"], "首组展开")
         self.assertTrue(groups[1]["collapsed"], "其余折叠")
-        self.assertEqual(groups[0]["items"][0], {"text": "子", "link": "/guide/sub/"})
+        # 去重（tenant 回流）：分组标题与 index 首项同名时链接上提分组、首项删除
+        self.assertEqual(groups[0]["link"], "/guide/sub/")
+        self.assertEqual(groups[0]["items"][0], {"text": "C", "link": "/guide/sub/c"})
 
     def test_dry_run_writes_nothing(self):
         code, out = self.run_cli(wiki.cmd_nav_build, Namespace(dry_run=True))
@@ -686,6 +688,31 @@ class TestNavVitepress(NavVitepressFixture):
         code, out = self.run_cli(wiki.cmd_nav_build, Namespace(dry_run=False))
         self.assertEqual(code, 0)
         self.assertIn("无变化", out)
+
+    def test_config_scaffold_on_missing(self):
+        conf = self.root / "docs" / ".vitepress" / "config.mts"
+        conf.unlink()  # fixture 自带占位 config，删掉才测得到脚手架分支
+        self.assertFalse(conf.exists())
+        code, out = self.run_cli(wiki.cmd_nav_build, Namespace(dry_run=False))
+        self.assertEqual(code, 0, out)
+        self.assertIn("脚手架", out)
+        text = conf.read_text(encoding="utf-8")
+        self.assertIn("sidebar.auto.mts", text)
+        self.assertIn("sidebar: sidebarAuto", text)
+
+    def test_config_never_overwritten(self):
+        conf = self.root / "docs" / ".vitepress" / "config.mts"
+        conf.write_text("// 手写定制\n", encoding="utf-8")
+        code, out = self.run_cli(wiki.cmd_nav_build, Namespace(dry_run=False))
+        self.assertEqual(code, 0, out)
+        self.assertEqual(conf.read_text(encoding="utf-8"), "// 手写定制\n")
+
+    def test_dry_run_reports_config(self):
+        (self.root / "docs" / ".vitepress" / "config.mts").unlink()
+        code, out = self.run_cli(wiki.cmd_nav_build, Namespace(dry_run=True))
+        self.assertEqual(code, 0, out)
+        self.assertIn("config.mts", out)
+        self.assertFalse((self.root / "docs" / ".vitepress" / "sidebar.auto.mts").exists())
 
 
 class TestLintSidebar(NavVitepressFixture):

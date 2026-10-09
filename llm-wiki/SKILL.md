@@ -99,7 +99,7 @@ user-invocable: true
 
 **配置**：项目根 `.llm-wiki.toml`（端口、目录映射、lint 开关、drift watch、pdf 主题映射）。无配置时用最小默认。
 
-**站点后端**（`site.backend`，默认 `mkdocs`）：`build`／`serve`／`deploy`／`check-deps` 按后端分流到对应官方 CLI——mkdocs 侧走 `mkdocs`，vitepress 侧走 `vitepress`（dev／build／preview），只认项目本地安装（`node_modules/.bin`），缺失即报错给安装命令（包管理默认 `pnpm`）。判据类命令栈无关（`lint`／`drift`／`export`／`pdf` 复用；`nav` 的输出端按后端切换，见 `nav build --help`）。
+**站点后端**（`site.backend`，默认 `mkdocs`）：`build`／`serve`／`deploy`／`check-deps` 按后端分流到对应官方 CLI——mkdocs 侧走 `mkdocs`，vitepress 侧走 `vitepress`（dev／build／preview），只认项目本地安装（`node_modules/.bin`），缺失即报错给安装命令（包管理默认 `pnpm`）。判据类命令栈无关（`lint`／`drift`／`export`／`pdf` 复用；`nav` 的输出端按后端切换，见 `nav build --help`）。vitepress 落位两条硬约束见 `TEMPLATE.md` §四（`.gitignore` 先加白再排产物）与 `[site]` 注释（仓根安装／`config.mts` 脚手架／`site_dir` 分流）。
 
 ## §7 项目声明段（`AGENTS.md`）
 

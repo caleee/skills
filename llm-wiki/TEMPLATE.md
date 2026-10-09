@@ -29,12 +29,16 @@
 ```toml
 [site]
 root = "docs"              # 知识库根（MkDocs 的 docs_dir）
-site_dir = "site"          # 构建产物
-config = "mkdocs.yml"      # 站点配置
+site_dir = "site"          # 构建产物（mkdocs 语义）。vitepress 下默认即 `<docs>/.vitepress/dist`
+                           # （官方 outDir），留默认即可；显式改则须与 `config.mts` 的 outDir 一致
+config = "mkdocs.yml"      # 站点配置（mkdocs 用；vitepress 用 `docs/.vitepress/config.mts`）
 backend = "mkdocs"           # 站点后端：mkdocs（默认）| vitepress
-                           # vitepress 侧只认项目本地安装，包管理默认 pnpm
+                           # vitepress 侧只认项目本地安装（仓根 `node_modules/.bin/vitepress`，
+                           # 另起 `docs/package.json` 装完也找不到），包管理默认 pnpm
+                           # vitepress 侧首次 `nav build` 会脚手架最小 `config.mts`（已存在永不动）
 port = 8000                # 本地预览端口
 nav_mode = "auto"          # auto=由目录生成 .pages(P4) | manual=用 mkdocs.yml 的 nav
+                           # （vitepress 下 auto=生成 `sidebar.auto.mts`，分组同名去重已内建）
 
 [lint]
 max_children = 24          # P1 目录预算；0 = 关闭
@@ -76,4 +80,17 @@ llmwiki nav build          # 由目录生成 .pages（P4）
 llmwiki lint               # 体检：目录预算 / 断链 / 孤儿
 llmwiki check-deps         # 需要构建站点时再装 mkdocs
 llmwiki serve start
+```
+
+## 四、vitepress 落位（`.gitignore` 必备）
+
+> 根 `.gitignore` 若有 `**/.*`（默认忽略一切点目录），`docs/.vitepress/` 会被静默忽略——
+> 站点工程建了却不入仓，clone 后“配置丢了”且 `git status` 无提示。按下式**先加白、再排除产物**：
+
+```gitignore
+!docs/.vitepress/
+!docs/.vitepress/**
+docs/.vitepress/dist
+docs/.vitepress/cache
+docs/.vitepress/.temp
 ```

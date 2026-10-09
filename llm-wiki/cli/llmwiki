@@ -545,7 +545,11 @@ def _vp_has_md(d: Path, root: Path, cfg: dict) -> bool:
 
 
 def _sidebar_items(d: Path, root: Path, cfg: dict) -> list:
-    """目录 → sidebar items：index 链接打头 ＋ md 链接 ＋ 子目录分组（首组展开、其余折叠）。"""
+    """目录 → sidebar items：index 链接打头 ＋ md 链接 ＋ 子目录分组（首组展开、其余折叠）。
+
+    去重：子目录分组标题取自其 index H1 时，首项必与分组同名 → 链接上提给分组、删首项
+   （tenant 实证：手写 `dedupeSidebar()` 绕开的即此重复；收敛进生成器）。仅 index 的子目录
+    收为无 items 的带链分组。递归先生效，父组判断时子组已去重。"""
     items: list = []
     for f in sorted(d.iterdir()):
         if not f.is_file() or f.suffix != ".md" or skip(f.relative_to(root), cfg):
@@ -562,7 +566,17 @@ def _sidebar_items(d: Path, root: Path, cfg: dict) -> list:
         sub_items = _sidebar_items(sub, root, cfg)
         if not sub_items:
             continue
-        items.append({"text": _vp_dir_title(sub), "collapsed": (not first), "items": sub_items})
+        title = _vp_dir_title(sub)
+        head, rest = sub_items[0], sub_items[1:]
+        if ("items" not in head and head.get("link")
+                and head.get("text") == title):
+            group: dict = {"text": title, "link": head["link"]}
+            if rest:
+                group["collapsed"] = not first
+                group["items"] = rest
+            items.append(group)
+        else:
+            items.append({"text": title, "collapsed": (not first), "items": sub_items})
         first = False
     return items
 
@@ -582,21 +596,52 @@ def _sidebar_body(root: Path, cfg: dict) -> tuple:
     return side, SIDEBAR_HEADER + "export default " + json.dumps(side, ensure_ascii=False, indent=2) + "\n"
 
 
+#: vitepress 站点最小脚手架：`config.mts` 缺失时由 `nav build` 生成（幂等：已存在永不动）。
+#: 只给挂载生成物所需的最小可跑配置，项目按需扩展（tenant 实证：无此文件时 sidebar 无处挂载）。
+CONFIG_MTS = """\
+// 由 `llmwiki nav build` 脚手架生成（最小可跑配置，请按项目扩展；已存在永不覆盖）。
+import { defineConfig } from "vitepress"
+import sidebarAuto from "./sidebar.auto.mts"
+
+export default defineConfig({
+  lang: "zh-CN",
+  title: "Docs",
+  description: "",
+  themeConfig: {
+    sidebar: sidebarAuto,
+    lastUpdated: { text: "最后更新" },
+    docFooter: { prev: "上一页", next: "下一页" },
+    outline: { label: "本页目录" },
+  },
+})
+"""
+
+
 def _nav_build_vitepress(cfg, a) -> int:
-    """vitepress 后端：由目录生成 `sidebar.auto.mts`（全量重写）。"""
+    """vitepress 后端：由目录生成 `sidebar.auto.mts`（全量重写）。
+
+    `config.mts` 缺失时顺手脚手架最小配置（已存在永不动）；`dry-run` 播报两文件。"""
     root = docs_dir(cfg)
     if not root.exists():
         die(f"知识库根不存在：{root}")
     side, body = _sidebar_body(root, cfg)
     dest = root / ".vitepress" / SIDEBAR_AUTO
+    conf = root / ".vitepress" / "config.mts"
     rel_dest = dest.relative_to(cfg["_root"]).as_posix()
+    rel_conf = conf.relative_to(cfg["_root"]).as_posix()
+    want_conf = not conf.exists()
     if a.dry_run:
         print(f"（dry-run）WRITE {rel_dest}  {len(side)} 个 sidebar key")
+        if want_conf:
+            print(f"（dry-run）WRITE {rel_conf}  最小脚手架（已存在则跳过）")
         return 0
-    if dest.exists() and dest.read_text(encoding="utf-8") == body:
+    if dest.exists() and dest.read_text(encoding="utf-8") == body and not want_conf:
         print(f"= {rel_dest} 无变化")
         return 0
     dest.parent.mkdir(parents=True, exist_ok=True)
+    if want_conf:
+        conf.write_text(CONFIG_MTS, encoding="utf-8")
+        print(f"✓ 已脚手架 {rel_conf}（最小可跑配置，请按项目扩展）")
     dest.write_text(body, encoding="utf-8")
     print(f"✓ 已生成 {rel_dest}（{len(side)} 个 sidebar key）")
     return 0
