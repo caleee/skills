@@ -392,11 +392,19 @@ def cmd_serve(cfg, a):
         if not a.full:
             cmd.append("--dirty")                 # 增量：改一个 md ~0.2s
         env = _mkdocs_env(cfg, with_dates=a.with_dates)
+    # 后台服务必须与终端 stdin 脱钩：vitepress dev 监听 stdin 快捷键
+    #（`press h to show help`），继承 stdin 会抢走 shell 的按键
+    #（上下键/history/backspace 假死），退出时还报 `read EIO`。
+    # `start_new_session=True` 让服务自成进程组（与 svc-ops 一致），Ctrl-C 不连坐。
     log = open(f"/tmp/llmwiki-{cfg['_root'].name}.log", "w")
+    logname = log.name
     child = subprocess.Popen(cmd, cwd=cfg["_root"], env=env,
-                             stdout=log, stderr=subprocess.STDOUT)
+                             stdin=subprocess.DEVNULL,
+                             stdout=log, stderr=subprocess.STDOUT,
+                             start_new_session=True)
+    log.close()  # 子进程已 dup 该 fd，父进程可立即关闭（免泄漏）
     _pidfile(cfg).write_text(str(child.pid))
-    print(f"启动中… 首次构建约 10–40s（日志 {log.name}）")
+    print(f"启动中… 首次构建约 10–40s（日志 {logname}）")
     print(f"就绪: http://127.0.0.1:{port}" if _wait_ready(port, child)
           else "⚠ 超时未就绪，请查看日志")
     return 0
