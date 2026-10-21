@@ -106,6 +106,15 @@ def parse_env_text(text: str) -> dict[str, str]:
     return out
 
 
+def _norm_after(value) -> list[str]:
+    """服务依赖 `after`：字符串或数组 ⇒ 列表。仅用于**启动排序**，不是运行期健康依赖。"""
+    if not value:
+        return []
+    if isinstance(value, str):
+        return [value]
+    return [str(v) for v in value]
+
+
 class Context:
     def __init__(self, root: Path, cfg: dict, json_mode: bool, dry_run: bool):
         self.root = root
@@ -140,6 +149,7 @@ class Context:
                 "health": spec.get("health"),
                 "env": {str(k): str(v) for k, v in (spec.get("env") or {}).items()},
                 "env_file": spec.get("env_file"),
+                "after": _norm_after(spec.get("after")),
                 "ready_timeout": int(spec.get("ready_timeout", self.ready_timeout)),
             }
         return table
@@ -151,13 +161,14 @@ def _abs(root: Path, p: str) -> Path:
 
 
 def _targets(pos: Sequence[str], table: dict) -> list[str]:
-    """`[名|all]` → 服务名清单（缺省 all）；非法即报错。"""
-    name = pos[0] if pos else "all"
-    if name == "all":
+    """`[名|all] …` → 服务名清单（缺省 all；**可并列多个**，含 `all` 即全集）；非法即报错。"""
+    if not pos or "all" in pos:
         return list(table)
-    if name not in table:
-        raise SvcError(f"服务须为 {'|'.join(table)}|all（收到 {name!r}）")
-    return [name]
+    unknown = [n for n in pos if n not in table]
+    if unknown:
+        raise SvcError(f"服务须为 {'|'.join(table)}|all"
+                       f"（收到 {', '.join(repr(n) for n in unknown)}）")
+    return list(dict.fromkeys(pos))            # 去重且保留给出顺序
 
 
 # ─────────────────────────── 进程 / 端口 / 健康 ───────────────────────────
@@ -414,44 +425,71 @@ def _pidfile(ctx: Context, name: str) -> Path:
     return ctx.pid_dir / f"{name}.pid"
 
 
+def _start_levels(table: dict, names: list[str]) -> list[list[str]]:
+    """按 `after` 依赖把待启动服务**分层**：同层可并行，上层全部就绪后才起下层。
+
+    依赖不在本次目标内的**忽略**（只起 platform 时不该被迫拉起 org-service）；
+    成环 ⇒ 配置错误（拓扑排序挑不出任何可起者即为环）。
+    """
+    pending = set(names)
+    levels: list[list[str]] = []
+    while pending:
+        ready = sorted(n for n in pending if not (set(table[n]["after"]) & pending))
+        if not ready:
+            raise SvcError("服务依赖成环（after）：" + "、".join(sorted(pending)))
+        levels.append(ready)
+        pending -= set(ready)
+    return levels
+
+
 def cmd_start(args, ctx: Context) -> int:
     table = ctx.services()
     names = _targets(args, table)
+    levels = _start_levels(table, names)
     if ctx.dry_run:
-        for name in names:
-            print(f"（dry-run）将启动 {name}：{' '.join(table[name]['command'])} "
-                  f"(cwd={table[name]['cwd']}) port={table[name]['port']}")
+        for depth, level in enumerate(levels, 1):
+            for name in level:
+                print(f"（dry-run）第 {depth} 层启动 {name}：{' '.join(table[name]['command'])} "
+                      f"(cwd={table[name]['cwd']}) port={table[name]['port']}"
+                      + (f" after={table[name]['after']}" if table[name]["after"] else ""))
         return 0
 
     started: list[tuple[str, subprocess.Popen]] = []
-    for name in names:
-        svc = table[name]
-        pf = _pidfile(ctx, name)
-        pid = _read_pid(pf)
-        if pid and _alive(pid):
-            print(f"{name} 已在运行（pid {pid}）")
-            continue
-        _free_port(svc["port"])
-        log = _open_log(ctx.log_dir, name,
-                        max_mb=int(ctx.run_cfg.get("max_log_mb", 0)))
-        env = _service_env(svc, ctx)
-        try:
-            child = subprocess.Popen(
-                svc["command"], cwd=str(svc["cwd"]), env=env,
-                stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
-        except FileNotFoundError as exc:
-            raise SvcError(f"{name} 启动失败：找不到命令 {exc}") from None
-        _write_pid(pf, child.pid)
-        started.append((name, child))
-
     failed: list[str] = []
-    for name, child in started:
-        svc = table[name]
-        if not _wait_ready(svc, child, ctx):
-            failed.append(name)
+    skipped: list[str] = []
+    for level in levels:
+        if failed:
+            skipped.extend(level)      # 前层未就绪：后续层不盲目起（避免注定失败的启动）
+            continue
+        fresh: list[tuple[str, subprocess.Popen]] = []
+        for name in level:             # 同层并行起
+            svc = table[name]
+            pf = _pidfile(ctx, name)
+            pid = _read_pid(pf)
+            if pid and _alive(pid):
+                print(f"{name} 已在运行（pid {pid}）")
+                continue
+            _free_port(svc["port"])
+            log = _open_log(ctx.log_dir, name,
+                            max_mb=int(ctx.run_cfg.get("max_log_mb", 0)))
+            env = _service_env(svc, ctx)
+            try:
+                child = subprocess.Popen(
+                    svc["command"], cwd=str(svc["cwd"]), env=env,
+                    stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
+            except FileNotFoundError as exc:
+                raise SvcError(f"{name} 启动失败：找不到命令 {exc}") from None
+            _write_pid(pf, child.pid)
+            fresh.append((name, child))
+            started.append((name, child))
+        for name, child in fresh:      # 本层**全部**就绪后才进下一层
+            if not _wait_ready(table[name], child, ctx):
+                failed.append(name)
 
     print(f"已启动：{'、'.join(n for n, _ in started) if started else '（无新增）'}"
           f"｜日志目录 {ctx.log_dir}")
+    if skipped:
+        print(f"已跳过（前序未就绪）：{'、'.join(skipped)}", file=sys.stderr)
     if failed:
         return _fail(f"{'、'.join(failed)} 未能就绪（进程已退出或超时）"
                      f"——完整日志见 {ctx.log_dir}/")

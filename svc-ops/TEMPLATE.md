@@ -39,6 +39,7 @@ health = "http://localhost:8080/actuator/health"   # 就绪 URL；缺省则 TCP 
 env_file = "infra/.env.local"            # 可选
 env = { SPRING_PROFILES_ACTIVE = "local" }          # 可选：静态注入
 ready_timeout = 120                      # 覆盖 [run] 默认
+after = "db"                             # 可选：启动顺序依赖（字符串或数组；非运行期健康依赖）
 
 [services.web]
 port = 5173
