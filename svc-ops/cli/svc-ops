@@ -56,7 +56,7 @@ USAGE = """用法：
 """
 
 DEFAULTS = {"pid_dir": ".svc-ops/run", "log_dir": ".svc-ops/logs",
-            "ready_timeout": 90, "probe_timeout": 2}
+            "ready_timeout": 90, "probe_timeout": 2, "max_log_mb": 20}
 LOG_TAIL = 15
 
 
@@ -319,17 +319,67 @@ def _note_log(log_dir: Path, name: str, action: str) -> None:
         pass
 
 
-def _open_log(log_dir: Path, name: str, action: str = "start") -> TextIO:
+def _rotate_log(log_dir: Path, name: str, max_mb: int) -> None:
+    """启动前滚动日志：达到 `max_mb` 即改名为 `.log.1`（只留一代，覆盖旧备份）。
+
+    只追加会让日志无限增长（曾有单服务 57 MB），事后翻错误如大海捞针；
+    `max_mb <= 0` 表示关闭轮转。
+    """
+    if max_mb <= 0:
+        return
+    log = log_dir / f"{name}.log"
+    try:
+        if log.is_file() and log.stat().st_size >= max_mb * 1024 * 1024:
+            os.replace(log, log_dir / f"{name}.log.1")
+    except OSError:
+        pass
+
+
+def _open_log(log_dir: Path, name: str, action: str = "start",
+              max_mb: int = 0) -> TextIO:
     """以**追加**方式打开服务日志（先写分隔行）——留证优先于干净（覆盖会抹掉上次失败现场）。"""
+    if action == "start":
+        _rotate_log(log_dir, name, max_mb)
     _note_log(log_dir, name, action)
     return open(log_dir / f"{name}.log", "a", encoding="utf-8")
 
 
 def _tail(log: Path, lines: int = LOG_TAIL) -> list[str]:
+    """读日志末尾若干行：**从文件尾按块回读**，不整文件载入（大日志下诊断本身会卡住）。"""
     try:
-        return log.read_text(encoding="utf-8", errors="replace").splitlines()[-lines:]
+        with open(log, "rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            remaining = handle.tell()
+            data = b""
+            while remaining > 0 and data.count(b"\n") <= lines:
+                step = min(8192, remaining)
+                remaining -= step
+                handle.seek(remaining)
+                data = handle.read(step) + data
+        return data.decode("utf-8", errors="replace").splitlines()[-lines:]
     except OSError:
         return []
+
+
+def _probe_detail(svc: dict, ctx: Context) -> tuple[bool, str]:
+    """就绪探测的**诊断版**：同 `_ready_probe`，但带回响应体摘要（超时后打印用）。
+
+    正常情况下 health 端点非 2xx ⇒ urllib 抛 `HTTPError`，body 里才带着「哪个组件 DOWN」
+    （如 Spring `{"status":"DOWN"}`）——`_url_ok` 把它吞掉了，失败时只剩一句「见日志」。
+    """
+    if not svc["health"]:
+        return _port_alive(svc["port"]), ""
+    try:
+        with urllib.request.urlopen(svc["health"], timeout=ctx.probe_timeout) as resp:
+            return 200 <= resp.status < 300, ""
+    except urllib.error.HTTPError as exc:
+        try:
+            body = exc.read().decode("utf-8", errors="replace").strip()
+        except Exception:
+            body = ""
+        return False, f"HTTP {exc.code} {body[:200]}".strip()
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        return False, str(exc)[:200]
 
 
 def _exit_desc(code: int | None) -> str:
@@ -382,7 +432,8 @@ def cmd_start(args, ctx: Context) -> int:
             print(f"{name} 已在运行（pid {pid}）")
             continue
         _free_port(svc["port"])
-        log = _open_log(ctx.log_dir, name)
+        log = _open_log(ctx.log_dir, name,
+                        max_mb=int(ctx.run_cfg.get("max_log_mb", 0)))
         env = _service_env(svc, ctx)
         try:
             child = subprocess.Popen(
@@ -421,8 +472,16 @@ def _wait_ready(svc: dict, child: subprocess.Popen, ctx: Context) -> bool:
         if _ready_probe(svc, ctx):
             return True
         time.sleep(1)
-    print(f"⚠️ {svc['name']} 未在 {svc['ready_timeout']}s 内就绪（进程仍在运行）"
-          f"——查看日志 {log}", file=sys.stderr)
+    print(f"⚠️ {svc['name']} 未在 {svc['ready_timeout']}s 内就绪（进程仍在运行）",
+          file=sys.stderr)
+    _, detail = _probe_detail(svc, ctx)
+    if detail:
+        target = svc["health"] or f"tcp:{svc['port']}"
+        print(f"  健康检查：{target} → {detail}", file=sys.stderr)
+    print(f"  日志末尾 {LOG_TAIL} 行：", file=sys.stderr)
+    for line in _tail(log):
+        print(f"  {line}", file=sys.stderr)
+    print(f"  完整日志：{log}", file=sys.stderr)
     return False
 
 

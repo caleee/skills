@@ -28,6 +28,7 @@ pid_dir = ".svc-ops/run"        # PID 文件目录（相对项目根）
 log_dir = ".svc-ops/logs"       # 服务日志目录（相对项目根）
 ready_timeout = 90              # 默认就绪等待秒数
 probe_timeout = 2               # 单次健康探针超时
+max_log_mb = 20                 # 启动前日志轮转阈值（MB；0 = 关闭，保留一代 .log.1）
 # env_file = "infra/.env"       # 可选：所有服务共享的 shell 风格 .env
 
 [services.api]
