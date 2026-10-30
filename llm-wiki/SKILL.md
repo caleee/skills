@@ -92,6 +92,7 @@ user-invocable: true
 | `llmwiki drift` | 上游仓（如被调研代码）演进 vs 我方分析篇的**时差** | git |
 | `llmwiki export` | 生成 AI 可消费出口 | — |
 | `llmwiki pdf` | mermaid 转 PNG 中转（供 md→pdf） | mmdc |
+| `llmwiki move` | **移动稿件并重算全仓站内相对链接**（按「移动前基准」解析、保留目录链接尾斜杠；默认 `git mv` 保历史） | git（可关闭） |
 
 > **旗标以 `llmwiki <cmd> --help` 为准**——本表只给命令面与作用，**不复述旗标**
 > （逐条罗列必与实现漂移）。`nav build` / `deploy` 会写盘甚至删目录，用前先看

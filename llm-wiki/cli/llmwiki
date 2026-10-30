@@ -16,6 +16,7 @@
   llmwiki drift                         上游仓演进 vs 我方分析篇的时差
   llmwiki export [--llms-txt] [--out F] 生成 AI 可消费出口
   llmwiki pdf <src> <outdir> <stem>     mermaid → PNG 中转（供 md→pdf）
+  llmwiki move <src> <dst>              移动稿件并重算全仓站内相对链接
 
 项目根定位顺序：`--root` → `LLMWIKI_ROOT` 环境变量 → 向上自动查找。
 自动查找按标记**分轮**（`.llm-wiki.toml` → `mkdocs.yml` → `.git`），避免 monorepo
@@ -991,6 +992,112 @@ def cmd_pdf(cfg, a):
     print(f"replaced {idx} diagrams -> {dest}")
 
 
+# ─────────────────────────── move：移动稿件并重算站内相对链接 ───────────────────
+_MD_LINK = re.compile(r"\]\(([^)\s#]+)(#[^)]*)?\)")
+_LINK_SKIP = ("http://", "https://", "mailto:", "tel:")
+
+
+def _norm_path(p: Path) -> Path:
+    return Path(os.path.normpath(str(p)))
+
+
+def _move_pairs(src: Path, dst: Path) -> dict[Path, Path]:
+    """旧绝对路径 → 新绝对路径（文件或目录均可）。"""
+    if src.is_file():
+        return {_norm_path(src): _norm_path(dst)}
+    return {
+        _norm_path(f): _norm_path(dst / f.relative_to(src))
+        for f in src.rglob("*")
+        if f.is_file()
+    }
+
+
+def cmd_move(cfg, a):
+    """移动稿件并重算全仓站内相对链接（源层/编译层通用）。
+
+    判据：链接语义是相对**移动前**位置书写的，故先用旧父目录解析目标，再映射到
+    新绝对路径，最后相对新位置重算。目录链接的尾斜杠必须保留——vitepress 靠
+    `foo/` 解析到 `foo/index.md`，去掉会变成死链（`MT-211` 实证）。
+    """
+    root: Path = cfg["_root"].resolve()
+    doc_root: Path = (root / cfg["site.root"]).resolve()
+
+    def resolve(p: str) -> Path:
+        cand = (root / p).expanduser().resolve()
+        if not cand.exists():
+            alt = (doc_root / p).expanduser().resolve()
+            if alt.exists():
+                return alt
+        return cand
+
+    src, dst = resolve(a.src), resolve(a.dst)
+    if not src.exists():
+        print(f"✗ 源不存在：{a.src}")
+        return 1
+    if dst.exists():
+        print(f"✗ 目标已存在：{a.dst}")
+        return 1
+
+    pairs = _move_pairs(src, dst)
+    new_to_old_parent = {new: old.parent for old, new in pairs.items()}
+
+    if not a.dry_run:
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        moved = False
+        if not a.no_git:
+            try:
+                subprocess.run(
+                    ["git", "-C", str(root), "mv", str(src), str(dst)],
+                    check=True, capture_output=True,
+                )
+                moved = True
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                moved = False
+        if not moved:
+            shutil.move(str(src), str(dst))
+
+    touched: list[Path] = []
+    for p in doc_root.rglob("*.md"):
+        if any(part in {"node_modules", ".git"} for part in p.parts):
+            continue
+        p_abs = _norm_path(p)
+        old_parent = new_to_old_parent.get(p_abs, p.parent)
+        try:
+            text = p.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        changed = False
+
+        def repl(m: re.Match) -> str:
+            nonlocal changed
+            target, anchor = m.group(1), m.group(2) or ""
+            if target.startswith(_LINK_SKIP) or target.startswith("#"):
+                return m.group(0)
+            tail = "/" if target.endswith("/") else ""
+            old_abs = _norm_path(old_parent / target.rstrip("/"))
+            new_abs = pairs.get(old_abs, old_abs)
+            try:
+                new_target = os.path.relpath(str(new_abs), str(p.parent)).replace(os.sep, "/")
+            except ValueError:
+                return m.group(0)
+            new_target += tail
+            if new_target == target:
+                return m.group(0)
+            changed = True
+            return f"]({new_target}{anchor})"
+
+        new_text = _MD_LINK.sub(repl, text)
+        if changed:
+            touched.append(p)
+            if not a.dry_run:
+                p.write_text(new_text, encoding="utf-8")
+
+    print(f"{'[dry-run] ' if a.dry_run else ''}移动 {a.src} → {a.dst}；重算链接 {len(touched)} 个文件")
+    for p in touched:
+        print(" ", p.relative_to(root))
+    return 0
+
+
 # ─────────────────────────── 入口 ───────────────────────────
 def build_parser() -> argparse.ArgumentParser:
     """命令面真源——`SKILL.md` §6 的命令表以它为准（测试双向断言）。"""
@@ -1033,6 +1140,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("src"); p.add_argument("outdir"); p.add_argument("stem")
     p.add_argument("--pdf-theme", default=""); p.add_argument("--mermaid-theme", default="")
     p.set_defaults(fn=cmd_pdf)
+
+    p = sub.add_parser("move", help="移动稿件并重算全仓站内相对链接")
+    p.add_argument("src"); p.add_argument("dst")
+    p.add_argument("--dry-run", action="store_true", help="只预览受影响文件，不移动不写入")
+    p.add_argument("--no-git", action="store_true", help="不用 git mv（非 git 仓库或不需要保留历史）")
+    p.set_defaults(fn=cmd_move)
 
     return ap
 

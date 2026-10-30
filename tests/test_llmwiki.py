@@ -758,5 +758,69 @@ class TestLintSidebar(NavVitepressFixture):
         self.assertNotIn(".vitepress/dist", out)
 
 
+class MoveTests(unittest.TestCase):
+    """`llmwiki move`：移动稿件并重算站内相对链接。
+
+    关键判据：链接语义相对**移动前**位置书写；目录链接尾斜杠必须保留。
+    """
+
+    def setUp(self):
+        self.wiki = _load_cli()
+
+    def _write(self, root: Path, rel: str, text: str) -> Path:
+        p = root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding="utf-8")
+        return p
+
+    def _cfg(self, root: Path) -> dict:
+        return {"_root": root, "site.root": "docs", "site.backend": "vitepress",
+                "lint.ignore": []}
+
+    def test_move_rewrites_inbound_outbound_and_keeps_trailing_slash(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            self._write(root, "docs/a.md", "# A\n\n[b](b.md)\n")
+            self._write(root, "docs/b.md", "# B\n\n[a](a.md)\n")
+            self._write(root, "docs/dir/index.md", "# D\n")
+            self._write(root, "docs/sub/c.md", "# C\n\n[a](../a.md) · [d](../dir/)\n")
+
+            args = Namespace(src="docs/a.md", dst="docs/sub/a.md",
+                             dry_run=False, no_git=True)
+            self.assertEqual(self.wiki.cmd_move(self._cfg(root), args), 0)
+
+            # 被移动文件内部链接：基准变深一层
+            self.assertIn("[b](../b.md)",
+                          (root / "docs/sub/a.md").read_text(encoding="utf-8"))
+            # 入站链接：指向新位置
+            self.assertIn("[a](sub/a.md)",
+                          (root / "docs/b.md").read_text(encoding="utf-8"))
+            c = (root / "docs/sub/c.md").read_text(encoding="utf-8")
+            self.assertIn("[a](a.md)", c)
+            # 目录链接尾斜杠保留（vitepress 靠它解析 index.md）
+            self.assertIn("[d](../dir/)", c)
+
+    def test_move_dry_run_changes_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            a = self._write(root, "docs/a.md", "# A\n")
+            b = self._write(root, "docs/b.md", "# B\n\n[a](a.md)\n")
+            args = Namespace(src="docs/a.md", dst="docs/sub/a.md",
+                             dry_run=True, no_git=True)
+            self.assertEqual(self.wiki.cmd_move(self._cfg(root), args), 0)
+            self.assertTrue(a.exists())
+            self.assertFalse((root / "docs/sub/a.md").exists())
+            self.assertEqual(b.read_text(encoding="utf-8"), "# B\n\n[a](a.md)\n")
+
+    def test_move_refuses_existing_dst(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            self._write(root, "docs/a.md", "# A\n")
+            self._write(root, "docs/b.md", "# B\n")
+            args = Namespace(src="docs/a.md", dst="docs/b.md",
+                             dry_run=False, no_git=True)
+            self.assertEqual(self.wiki.cmd_move(self._cfg(root), args), 1)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
