@@ -20,6 +20,7 @@ Claude Code skill 集合 — 按需取用的可独立发布技能。
 | [redis-cli](redis-cli.md) | Redis 访问 — 连通探测、任意命令透传、键枚举 | agent 需看/改 Redis 数据 |
 | [svc-ops](svc-ops.md) | 服务生命周期编排 — 服务表驱动起停/重启/状态/健康 | 本地多服务要一键起停 |
 | [http-probe](http-probe.md) | HTTP 探测与 API 调试 — 任意方法、JSON 体、鉴权头、契约解包 | agent 需调接口/探服务 |
+| [nested-repos](nested-repos.md) | 大仓/小仓双轨 Git 管理 — 双轨索引、初始化六步、LF 换行符、提交/推送确认、Zed 单仓面板 | 一个仓里嵌多个独立团队仓的人 |
 
 更多能力见各 `SKILL.md`。
 

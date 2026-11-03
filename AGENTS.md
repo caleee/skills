@@ -22,6 +22,7 @@ Claude Code skill 集合仓库（人类入口见 [`README.md`](README.md)）。�
 | redis-cli | `redis-cli.md` | `redis-cli/` | Redis 访问 — 连通探测 · 任意命令透传 · 键枚举 |
 | svc-ops | `svc-ops.md` | `svc-ops/` | 服务生命周期编排 — 服务表驱动 start/stop/restart/status/health · PID/日志/就绪/端口回收 |
 | http-probe | `http-probe.md` | `http-probe/` | HTTP 探测与 API 调试 — 任意方法/JSON 体/query/鉴权头 · 响应契约解包 |
+| nested-repos | `nested-repos.md` | `nested-repos/` | 大仓/小仓双轨 Git 管理 — 双轨索引/初始化六步/LF 换行符/提交推送确认/Zed 单仓面板与故障排查 |
 
 ## 文档层次（agent 视角）
 

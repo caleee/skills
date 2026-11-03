@@ -28,7 +28,7 @@
     {
       "name": "llm-wiki",
       "description": "知识库体系与文档站工具链 — 三层模型（源/编译/出口）· 目录预算四理念 · 落库分流 · 导航可达性与标记密度体检 · 漂移检测 · 站点 CLI",
-      "version": "0.1.4",
+      "version": "0.1.5",
       "path": "llm-wiki/"
     },
     {
@@ -36,6 +36,12 @@
       "description": "MySQL 访问与管理 CLI — 复用本机 mysql/mysqldump 零依赖，口令走 MYSQL_PWD 不落 history；连通性/查询/脚本/表清单/采样/备份/批量导入（由 INSERT 推断建表 DDL）/Flyway checksum 自检",
       "version": "0.1.0",
       "path": "mysql-cli/"
+    },
+    {
+      "name": "nested-repos",
+      "description": "大仓内嵌多个独立小仓的双轨 Git 管理 — 双轨索引、初始化六步、常驻声明段、LF 换行符、提交/推送确认、Zed 单仓面板与故障排查",
+      "version": "0.1.0",
+      "path": "nested-repos/"
     },
     {
       "name": "obscura",
@@ -70,7 +76,7 @@
     {
       "name": "svc-ops",
       "description": "服务生命周期编排 CLI — 服务表驱动 start/stop/restart/status/health；后台起进程、PID/日志落盘、等就绪、端口只回收监听者",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "path": "svc-ops/"
     }
   ]
