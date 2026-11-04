@@ -243,6 +243,50 @@ class TestXlsx(Fixture):
             od.write_table(str(out), ["a"], [["1"]])              # 目标已存在 → 拒
         od.write_table(str(out), ["a"], [["1"]], force=True)      # force 放行
 
+    # ── 多 sheet：`--append` 追加 ──
+    def test_append_adds_sheet_and_keeps_first_intact(self):
+        out = self.dir / "m.xlsx"
+        od.write_table(str(out), ["序号", "阶段"], [["A1-1", "甲"]],
+                       sheet_name="配置态")
+        before = {n: zipfile.ZipFile(out).read(n) for n in zipfile.ZipFile(out).namelist()}
+        res = od.append_sheet(str(out), ["序号", "阶段"], [["B1-1", "乙"]],
+                              sheet_name="运行态")
+        self.assertEqual(res["sheets"], 2)
+        self.assertEqual([n for n, _ in od.sheets(str(out))], ["配置态", "运行态"])
+        after = zipfile.ZipFile(out)
+        self.assertEqual(before["xl/worksheets/sheet1.xml"],
+                         after.read("xl/worksheets/sheet1.xml"))   # 首表逐字节不变
+        self.assertEqual(before["xl/styles.xml"], after.read("xl/styles.xml"))
+        d = od.xlsx_dump(str(out), "运行态")
+        self.assertEqual(d["rows"][1]["cells"][0]["text"], "B1-1")
+
+    def test_append_rejects_header_mismatch(self):
+        out = self.dir / "m.xlsx"
+        od.write_table(str(out), ["序号", "阶段"], [["1", "甲"]], sheet_name="A")
+        with self.assertRaises(od.XlsxError) as cm:
+            od.append_sheet(str(out), ["序号", "阶段X"], [["2", "乙"]], sheet_name="B")
+        self.assertIn("表头", str(cm.exception))
+
+    def test_append_rejects_duplicate_and_missing(self):
+        out = self.dir / "m.xlsx"
+        od.write_table(str(out), ["a"], [["1"]], sheet_name="A")
+        with self.assertRaises(od.XlsxError):
+            od.append_sheet(str(out), ["a"], [["2"]], sheet_name="A")   # 重名
+        with self.assertRaises(od.XlsxError):
+            od.append_sheet(str(self.dir / "nope.xlsx"), ["a"], [["2"]], sheet_name="A")
+
+    def test_append_cli_flag_and_list_exclusive(self):
+        md = self.dir / "t.md"
+        md.write_text("| a |\n| --- |\n| 1 |\n\n| a |\n| --- |\n| 2 |\n", encoding="utf-8")
+        out = self.dir / "m.xlsx"
+        self.assertEqual(self.run_cli(["xlsx", "from-md", str(md), "--out", str(out),
+                                       "--table", "1", "--sheet", "S1"])[0], 0)
+        self.assertEqual(self.run_cli(["xlsx", "from-md", str(md), "--out", str(out),
+                                       "--table", "2", "--sheet", "S2", "--append"])[0], 0)
+        self.assertEqual([n for n, _ in od.sheets(str(out))], ["S1", "S2"])
+        self.assertEqual(self.run_cli(["xlsx", "from-md", str(md), "--list",
+                                       "--append"])[0], 2)
+
 
 class TestJsonFlag(Fixture):
     def test_dump_json_output(self):

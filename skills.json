@@ -52,7 +52,7 @@
     {
       "name": "office-docs",
       "description": "办公文档零依赖定点编辑 — PPTX 文字/形状/表格/连线/图片精确改（只改目标条目、可 diff 回填），XLSX 读取与 md→xlsx，含只读模板基线护栏",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "path": "office-docs/"
     },
     {

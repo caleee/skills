@@ -84,8 +84,9 @@ USAGE = """用法：
 
   office-docs pptx ...（下方）
   office-docs xlsx dump  <file> [--sheet <显示名> | --index N] [--all] [--json]   工作表结构（值＋样式摘要＋合并）
-  office-docs xlsx from-md <源.md> --out <目标.xlsx> [--table N] [--sheet <名>] [--list] [--force]
-                          md 管道表格 → xlsx（表头加粗＋冻结首行；--list 只列表格不生成）
+  office-docs xlsx from-md <源.md> --out <目标.xlsx> [--table N] [--sheet <名>] [--list] [--force] [--append]
+                          md 管道表格 → xlsx（表头加粗＋冻结首行；--list 只列表格不生成；
+                          --append 向已有文件追加工作表，表头须与首表一致）
 
 pptx 子命令：
   office-docs pptx dump  <file> [--json]                  结构清单（形状／表格单元格＋ref）
@@ -682,8 +683,106 @@ def write_table(path: str, header: list[str], rows: list[list[str]], *,
         for name, data in parts.items():
             z.writestr(name, data)
     return {"file": os.path.basename(path), "path": path, "sheet": sheet_name,
-            "rows": len(rows) + 1, "cols": len(header),
+            "rows": len(rows) + 1, "cols": len(header), "sheets": 1,
             "bytes": os.path.getsize(path)}
+
+
+def _row_cells_text(sheet_xml: str, rowno: int = 1) -> list[str]:
+    """取某行各单元格文本（本 CLI 只写 `inlineStr`；`v` 值兜底）。"""
+    root = ET.fromstring(sheet_xml.encode("utf-8"))
+    for row in root.findall(M + "sheetData/" + M + "row"):
+        if row.get("r") not in (None, str(rowno)):
+            continue
+        out: list[str] = []
+        for c in row.findall(M + "c"):
+            t = c.find(M + "is/" + M + "t")
+            if t is not None:
+                out.append(t.text or "")
+            else:
+                v = c.find(M + "v")
+                out.append((v.text or "") if v is not None else "")
+        return out
+    return []
+
+
+def append_sheet(path: str, header: list[str], rows: list[list[str]], *,
+                 sheet_name: str, freeze: bool = True,
+                 check_header: bool = True) -> dict:
+    """向**已有** xlsx 末尾追加一个工作表。
+
+    - 表名不与现有表重复；`check_header=True` 时表头须与**首表**逐格一致
+      （防两个 sheet 列对不上，下游按列取值时才发觉）。
+    - 维护 `[Content_Types].xml` / `xl/workbook.xml` / `xl/_rels/workbook.xml.rels`；
+      其余部件（含已有 sheet 的内容与样式）**逐字节原样保留**。
+    """
+    if not header:
+        raise XlsxError("表头为空，无法写出")
+    if not sheet_name or len(sheet_name) > 31 or _ILLEGAL_SHEET.search(sheet_name):
+        raise XlsxError("工作表名非法（1–31 字符且不含 [ ] : * ? / \\）：%r" % sheet_name)
+    if not os.path.exists(path):
+        raise XlsxError("追加目标不存在：%s（首次生成不要加 --append）" % path)
+
+    with zipfile.ZipFile(path) as z:
+        parts = {n: z.read(n) for n in z.namelist()}
+    for need in ("[Content_Types].xml", "xl/workbook.xml", "xl/_rels/workbook.xml.rels"):
+        if need not in parts:
+            raise XlsxError("目标不是本工具生成的 xlsx（缺 %s）：%s" % (need, path))
+
+    existing = sheets(path)                     # [(显示名, 部件名)]
+    if any(n == sheet_name for n, _ in existing):
+        raise XlsxError("工作表已存在：%r（换名，或不加 --append 重新生成）" % sheet_name)
+    if check_header and existing:
+        have = _row_cells_text(parts[existing[0][1]].decode("utf-8"), 1)
+        if have != header:
+            raise XlsxError("表头与首表 %r 不一致：\n  首表：%s\n  本次：%s"
+                            % (existing[0][0], " | ".join(have), " | ".join(header)))
+
+    used_parts = {p for _, p in existing}
+    seq = 1
+    while f"xl/worksheets/sheet{seq}.xml" in used_parts:
+        seq += 1
+    part = f"xl/worksheets/sheet{seq}.xml"
+    rels = parts["xl/_rels/workbook.xml.rels"].decode("utf-8")
+    rid = "rId%d" % (max([int(m) for m in re.findall(r'Id="rId(\d+)"', rels)] + [0]) + 1)
+    wb = parts["xl/workbook.xml"].decode("utf-8")
+    sid = max([int(m) for m in re.findall(r'sheetId="(\d+)"', wb)] + [0]) + 1
+    sheet_xml = _sheet_part(header, rows, freeze)
+
+    wb = wb.replace("</sheets>",
+                    f'<sheet name="{_xml_esc(sheet_name)}" sheetId="{sid}"'
+                    f' r:id="{rid}"/></sheets>')
+    rels = rels.replace("</Relationships>",
+                        f'<Relationship Id="{rid}" Type="{_XMLNS_REL}/worksheet"'
+                        f' Target="worksheets/sheet{seq}.xml"/></Relationships>')
+    ct = parts["[Content_Types].xml"].decode("utf-8")
+    ct = ct.replace("</Types>",
+                    f'<Override PartName="/{part}" ContentType="{_MAIN_CT}.worksheet+xml"/>'
+                    '</Types>')
+
+    parts["xl/workbook.xml"] = wb.encode("utf-8")
+    parts["xl/_rels/workbook.xml.rels"] = rels.encode("utf-8")
+    parts["[Content_Types].xml"] = ct.encode("utf-8")
+    parts[part] = sheet_xml.encode("utf-8")
+
+    tmp = path + ".append.tmp"
+    try:
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as z:
+            for name, data in parts.items():
+                z.writestr(name, data)
+        for name in ("xl/workbook.xml", "xl/_rels/workbook.xml.rels",
+                     "[Content_Types].xml", part):
+            with zipfile.ZipFile(tmp) as z:
+                ET.fromstring(z.read(name))       # XML 良构自检，不合格就地丢弃
+        if [n for n, _ in sheets(tmp)] != [n for n, _ in existing] + [sheet_name]:
+            raise XlsxError("追加后工作表清单不符（写坏，已放弃）")
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+    return {"file": os.path.basename(path), "path": path, "sheet": sheet_name,
+            "rows": len(rows) + 1, "cols": len(header),
+            "sheets": len(existing) + 1, "bytes": os.path.getsize(path)}
 
 
 SLIDE_RE = re.compile(r"^ppt/slides/slide(\d+)\.xml$")
@@ -2706,6 +2805,9 @@ def xlsx_main(args: list[str], ctx: Context) -> int:
             print(f"{src}：没有解析到管道表格", flush=True)
             return 1
         if _flag(rest, "--list"):
+            if _flag(rest, "--append"):
+                print("错误：--list 与 --append 互斥（前者只看不写）", flush=True)
+                return 2
             _dump_md_tables(src, tables)
             return 0
         out = _opt(rest, "--out")
@@ -2722,16 +2824,20 @@ def xlsx_main(args: list[str], ctx: Context) -> int:
             print(f"错误：{src} 只有 {len(tables)} 个表格（--table 1..{len(tables)}）", flush=True)
             return 2
         t = tables[idx - 1]
+        sheet = _opt(rest, "--sheet") or "Sheet1"
         try:
-            res = write_table(out, t["header"], t["rows"],
-                                   sheet_name=_opt(rest, "--sheet") or "Sheet1",
-                                   force=_flag(rest, "--force"))
+            if _flag(rest, "--append"):
+                res = append_sheet(out, t["header"], t["rows"], sheet_name=sheet)
+            else:
+                res = write_table(out, t["header"], t["rows"], sheet_name=sheet,
+                                  force=_flag(rest, "--force"))
         except XlsxError as e:
             print(f"错误：{e}", flush=True)
             return 2
         _print(res, ctx, lambda: print(
             f"{res['file']} :: {res['sheet']}  {res['rows']} 行 × {res['cols']} 列  "
-            f"{res['bytes']} 字节  ← {os.path.basename(src)} 第 {t['index']} 个表格"))
+            f"{res['bytes']} 字节  {res['sheets']} 个工作表  "
+            f"← {os.path.basename(src)} 第 {t['index']} 个表格"))
         return 0
     print(f"未知子命令 {cmd}\n\n{USAGE}")
     return 2

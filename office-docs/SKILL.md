@@ -61,7 +61,7 @@ user-invocable: true
 | `pptx media/put-image` | 媒体清单／换图（同名同扩展名换字节） |
 | `pptx check [--render]` | 结构自检；`--render` 用本机 PowerPoint 导出 PDF 做**Office 自证** |
 | `xlsx dump <f>` | 工作表结构（值＋样式摘要＋合并＋行列尺寸） |
-| `xlsx from-md <md> --out <xlsx>` | md 管道表格 → xlsx（表头加粗＋冻结首行） |
+| `xlsx from-md <md> --out <xlsx> [--append]` | md 管道表格 → xlsx（表头加粗＋冻结首行；`--append` 向已有文件追加工作表，表头须与首表一致） |
 
 > **旗标以 `office-docs <域> --help` 为准**——本表只给命令面与作用，**不复述旗标**（逐条罗列必与实现漂移）。
 
