@@ -154,6 +154,48 @@ class TestHttpRequest(unittest.TestCase):
         self.assertEqual(json.loads(captured["data"]), {"n": 1})
 
 
+class TestRequestBodyHeaders(unittest.TestCase):
+    """带 body 的请求须显式声明 Content-Type（urllib 默认按表单发）。"""
+
+    def _capture(self, argv, ctx):
+        captured = {}
+
+        def fake(req, timeout=None):
+            captured["headers"] = {k.lower(): v for k, v in req.header_items()}
+            captured["data"] = req.data
+            return _resp(200, b"{}")
+
+        with mock.patch("urllib.request.urlopen", side_effect=fake), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(hp.dispatch(argv, ctx), 0)
+        return captured
+
+    def test_json_body_gets_json_content_type(self):
+        captured = self._capture(["post", "/x", "--data", '{"n":1}'],
+                                 _ctx(".", cli_opts={"header": []}))
+        self.assertEqual(captured["headers"]["content-type"], "application/json")
+        self.assertEqual(json.loads(captured["data"]), {"n": 1})
+
+    def test_explicit_header_wins(self):
+        ctx = _ctx(".", cli_opts={"header": ["Content-Type: application/vnd.api+json"]})
+        captured = self._capture(["post", "/x", "--data", "{}"], ctx)
+        self.assertEqual(captured["headers"]["content-type"], "application/vnd.api+json")
+
+    def test_plain_data_file_sent_verbatim_as_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "p.txt").write_text("a=1&b=2", encoding="utf-8")
+            captured = self._capture(
+                ["post", "/x", "--data-file", str(Path(tmp, "p.txt"))],
+                _ctx(".", cli_opts={"header": []}))
+        self.assertEqual(captured["headers"]["content-type"], "text/plain")
+        self.assertEqual(captured["data"], b"a=1&b=2")   # 不加引号、不转义
+
+    def test_get_without_body_sends_no_content_type(self):
+        captured = self._capture(["get", "/x"], _ctx(".", cli_opts={"header": []}))
+        self.assertNotIn("content-type", captured["headers"])
+        self.assertIsNone(captured["data"])
+
+
 class TestContractUnwrap(unittest.TestCase):
     def test_success_unwraps_data(self):
         cfg = {"response": {"code_field": "code", "success_value": 0, "data_field": "data"}}

@@ -219,6 +219,7 @@ def _do(ctx: Context, method: str, args: Sequence[str]) -> int:
             k, v = p.split("=", 1)
             params[k] = v
     data = None
+    content_type = None
     if opts.get("data") is not None and opts.get("data-file"):
         raise HttpError("--data 与 --data-file 不能同时给")
     if opts.get("data") is not None:
@@ -226,6 +227,7 @@ def _do(ctx: Context, method: str, args: Sequence[str]) -> int:
             data = json.loads(opts["data"])
         except json.JSONDecodeError as exc:
             raise HttpError(f"--data 不是合法 JSON：{exc}") from None
+        content_type = "application/json"
     elif opts.get("data-file"):
         p = Path(opts["data-file"])
         if not p.is_file():
@@ -233,12 +235,21 @@ def _do(ctx: Context, method: str, args: Sequence[str]) -> int:
         text = p.read_text(encoding="utf-8")
         try:
             data = json.loads(text)
+            content_type = "application/json"
         except json.JSONDecodeError:
-            data = text      # 原样发送非 JSON 体
+            # 非 JSON 体转 bytes 原样发送（bytes 不会被 `http_request` 再 json.dumps）。
+            data = text.encode("utf-8")
+            content_type = "text/plain"
 
     url = _build_url(ctx.base_url(), path, params)
+    req_headers = ctx.headers()
+    if content_type and not any(k.lower() == "content-type" for k in req_headers):
+        # `urllib` 对 bytes body 默认发 `application/x-www-form-urlencoded`；
+        # JSON 体必须显式声明，否则服务端按表单解析（实测 Spring 报 415/500）。
+        # 显式 `--header 'Content-Type: …'` 优先。
+        req_headers["Content-Type"] = content_type
     status, headers, body = http_request(method, url, data=data,
-                                         headers=ctx.headers(), timeout=ctx.timeout())
+                                         headers=req_headers, timeout=ctx.timeout())
     return _emit(ctx, method, url, status, headers, body)
 
 
