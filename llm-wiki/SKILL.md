@@ -79,7 +79,7 @@ user-invocable: true
 
 ## §6 CLI（`cli/llmwiki`）
 
-本体 **stdlib-only**；构建类子命令**调用**外部工具（`mkdocs` / `mmdc`），不内嵌。
+本体 **stdlib-only**；构建类子命令**调用**外部工具（`mkdocs` / `mmdc`），不内嵌。`mmdc` 只服务 `pdf` 一个命令，属**可选项**。
 
 | 命令 | 作用 | 依赖 |
 |---|---|---|
@@ -91,12 +91,18 @@ user-invocable: true
 | `llmwiki lint` | P1 目录预算／断链／导航可达性（`nav_mode=auto` 时以可达性检查替代孤儿检查）；语义层（待确认·过期标记密度）默认关 | — |
 | `llmwiki drift` | 上游仓（如被调研代码）演进 vs 我方分析篇的**时差** | git |
 | `llmwiki export` | 生成 AI 可消费出口 | — |
-| `llmwiki pdf` | mermaid 转 PNG 中转（供 md→pdf） | mmdc |
+| `llmwiki pdf` | mermaid 转 PNG 中转（供 md→pdf） | mmdc（**可选**，按需装） |
 | `llmwiki move` | **移动稿件并重算全仓站内相对链接**（按「移动前基准」解析、保留目录链接尾斜杠；默认 `git mv` 保历史） | git（可关闭） |
 
 > **旗标以 `llmwiki <cmd> --help` 为准**——本表只给命令面与作用，**不复述旗标**
 > （逐条罗列必与实现漂移）。`nav build` / `deploy` 会写盘甚至删目录，用前先看
 > `--help` 里有无预演或确认旗标。
+
+> **`llmwiki pdf` 属可选项**：只有「出带图 PDF」时才需要 `mmdc`，其余命令都不依赖它。
+> 真要跑而没有 Chromium，**不必再装一份浏览器**——复用本机 Playwright 的 headless shell 即可：
+> `PUPPETEER_EXECUTABLE_PATH=~/Library/Caches/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-mac-arm64/chrome-headless-shell mmdc -i x.mmd -o x.png`
+> （实测 Chrome for Testing 153.0.8010.12 驱动 mmdc 11.17.0 正常出图；puppeteer 自身期望 152.0.7977.75，版本不符只是警告）。
+> 不出口 PDF 的仓库不必安装 `@mermaid-js/mermaid-cli`（npm 全局约 461M）。
 
 **配置**：项目根 `.llm-wiki.toml`（端口、目录映射、lint 开关、drift watch、pdf 主题映射）。无配置时用最小默认。
 
