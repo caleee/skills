@@ -60,6 +60,8 @@ user-invocable: true
 | `pptx add-row/del-row/fill-table/row-height/font-size` | 表格结构编辑（批量填表、裁行、压回页内） |
 | `pptx media/put-image` | 媒体清单／换图（同名同扩展名换字节） |
 | `pptx check [--render]` | 结构自检；`--render` 用本机 PowerPoint 导出 PDF 做**Office 自证** |
+| `pptx lint` | **几何体检**：越界／表格被内容撑高（错误），文本溢出估算（警告）；脚本生成流程的返工前置闸 |
+| `pptx preview` | 渲染成**逐页 PNG**（PDF → `pdftoppm`），默认落系统临时目录，供逐页肉眼核对 |
 | `xlsx dump <f>` | 工作表结构（值＋样式摘要＋合并＋行列尺寸） |
 | `xlsx from-md <md> --out <xlsx> [--append]` | md 管道表格 → xlsx（表头加粗＋冻结首行；`--append` 向已有文件追加工作表，表头须与首表一致） |
 
@@ -102,4 +104,5 @@ dir = "docs/report/template"   # 只读模板基线目录（相对项目根）�
 
 1. 本 skill 无任何项目路径（取值全在声明段／`.toml`）。
 2. 改完 pptx 跑 `check`；**改表格**还要 `check --render` ＋ 读回核对。
+3. **脚本生成**的页面先跑 `lint`：越界与表格撑高是确定性问题，能在渲染前拦掉；文本溢出是估算（全角 1em／半角 0.55em），手工排版的 PPT 噪音大（实测：模板 39 条、手改稿 27 条全为文本框估算），此类文件加 `--no-text`。
 3. 报告材料改动用 `diff` 回填 md，保持「md 为真源」。

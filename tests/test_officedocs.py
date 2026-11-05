@@ -288,6 +288,73 @@ class TestXlsx(Fixture):
                                        "--append"])[0], 2)
 
 
+class TestLint(Fixture):
+    """几何体检：越界／表格撑高判错误，文本溢出估算判警告（实测口径见 SKILL.md §6）。"""
+
+    def _swap_slide(self, slide_xml: str) -> None:
+        entries = _entries(self.deck)
+        entries["ppt/slides/slide1.xml"] = (_DECL + f"<p:sld {_NS}><p:cSld><p:spTree>"
+                                           '<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/>'
+                                           "<p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm>"
+                                           '<a:off x="0" y="0"/><a:ext cx="0" cy="0"/>'
+                                           '<a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/>'
+                                           "</a:xfrm></p:grpSpPr>" + slide_xml +
+                                           "</p:spTree></p:cSld></p:sld>").encode()
+        with zipfile.ZipFile(self.deck, "w", zipfile.ZIP_DEFLATED) as z:
+            for k, v in entries.items():
+                z.writestr(k, v)
+
+    def test_clean_deck_has_no_findings(self):
+        res = od.lint(self.deck)
+        self.assertEqual((res["errors"], res["warnings"]), (0, 0))
+        self.assertEqual(res["page"], {"w": 720, "h": 405})
+
+    def test_out_of_page_is_error_and_rc1(self):
+        # 页宽 720pt：x=600 + w=200 ⇒ 右边界 800pt
+        self._swap_slide(_sp(2, ["越界"], x_emu=7620000))
+        res = od.lint(self.deck)
+        self.assertEqual(res["errors"], 1)
+        rc, out = self.run_cli(["pptx", "lint", self.deck])
+        self.assertEqual(rc, 1)
+        self.assertIn("右边界", out)
+
+    def test_table_rows_taller_than_frame_is_error(self):
+        # 4 行×39pt＝157pt > 框高 100pt：渲染时表格会被撑开、末行易被裁
+        tbl = ('<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="5" name="t"/>'
+               '<p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>'
+               '<p:xfrm><a:off x="1270000" y="635000"/><a:ext cx="2540000" cy="1270000"/></p:xfrm>'
+               '<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">'
+               '<a:tbl><a:tblGrid><a:gridCol w="1270000"/></a:tblGrid>'
+               + '<a:tr h="500000"><a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:t>x</a:t></a:r></a:p>'
+                 '</a:txBody><a:tcPr/></a:tc></a:tr>' * 4 +
+               '</a:tbl></a:graphicData></a:graphic></p:graphicFrame>')
+        self._swap_slide(tbl)
+        res = od.lint(self.deck)
+        self.assertEqual(res["errors"], 1)
+        self.assertIn("行高合计", res["slides"][0]["errors"][0])
+
+    def test_text_overflow_is_warning_only(self):
+        self._swap_slide(_sp(2, ["这是一段明显超出文本框宽度的很长很长的中文文本用于验证估算" * 2]))
+        res = od.lint(self.deck)
+        self.assertEqual(res["errors"], 0)
+        self.assertGreaterEqual(res["warnings"], 1)
+        rc, _ = self.run_cli(["pptx", "lint", self.deck])
+        self.assertEqual(rc, 0)                       # 估算不失败
+        rc, _ = self.run_cli(["pptx", "lint", self.deck, "--strict"])
+        self.assertEqual(rc, 1)                       # --strict 才失败
+
+    def test_grouped_shapes_skipped(self):
+        # 组内坐标是相对组原点的，不能当绝对坐标判越界
+        grp = ('<p:grpSp><p:nvGrpSpPr><p:cNvPr id="9" name="g"/><p:cNvGrpSpPr/><p:nvPr/>'
+               '</p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="1000000" cy="1000000"/>'
+               '<a:chOff x="0" y="0"/><a:chExt cx="1000000" cy="1000000"/></a:xfrm></p:grpSpPr>'
+               + _sp(10, ["组内"], x_emu=9000000) + '</p:grpSp>')
+        self._swap_slide(grp)
+        res = od.lint(self.deck)
+        self.assertEqual(res["errors"], 0)
+        self.assertEqual(res["slides"][0].get("skipped_grouped"), 1)
+
+
 class TestJsonFlag(Fixture):
     def test_dump_json_output(self):
         buf = io.StringIO()

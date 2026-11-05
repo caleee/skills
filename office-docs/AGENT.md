@@ -13,6 +13,7 @@
 | 换模板里的图 | `media` 找 imageN → `put-image`（同名同扩展名） |
 | 把 xlsx 区域搬进 pptx | `xlsx dump` 看结构 → `pptx add-table --from <xlsx> --range <区域>` |
 | md 表格 → xlsx | `xlsx from-md <md> --out <xlsx>` |
+| 脚本生成的页面 | `pptx lint` 先拦越界／表格撑高；`pptx preview` 出逐页 PNG 肉眼核对 |
 | 收尾自证 | `pptx check [--render]`；差异 `pptx diff` 回填 md |
 
 ## 快速开始
@@ -25,7 +26,11 @@ office-docs pptx find deck.pptx "低阈值预算"
 # 2) 定点改（默认就地＋备份；--out 另存）
 office-docs pptx set deck.pptx --at slide2!tbl0.r1.c2 --text "新描述"
 
-# 3) 自证 + 回填
+# 3) 几何体检 + 逐页预览（脚本生成时先跑，省掉「改一次渲染一次」）
+office-docs pptx lint deck.pptx
+office-docs pptx preview deck.pptx
+
+# 4) 自证 + 回填
 office-docs pptx check deck.pptx
 office-docs pptx diff deck.pptx.bak.pptx deck.pptx
 ```

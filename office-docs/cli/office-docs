@@ -97,6 +97,10 @@ pptx 子命令：
   office-docs pptx put-image <file> --at <imageN.png> --from <源图> [--out <file>] [--force]
   office-docs pptx check <file> [--render] [--render-out <pdf>] [--json]
                           结构自检；--render 另用本机 PowerPoint 打开并导出 PDF（Office 自证）
+  office-docs pptx lint  <file> [--overlap] [--no-text] [--tol N] [--strict] [--json]
+                          几何体检：越界与表格撑高＝错误；文本溢出估算＝警告（--strict 时也失败）
+  office-docs pptx preview <file> [--out <目录>] [--dpi 100] [--json]
+                          渲染成逐页 PNG（导出 PDF → pdftoppm），默认落系统临时目录
   office-docs pptx add-table <file> --from <xlsx> --range <区域> [--sheet <名> | --index N] [--slide N]
                            [--at x,y] [--size w,h] [--out <file>]   把 xlsx 区域搬成原生表格（带样式）
   office-docs pptx add-slide <file> [--layout N] [--out <file>]     末尾新增一页空白页
@@ -2251,6 +2255,194 @@ def check(path: str) -> list[str]:
     return problems
 
 
+# ---------- 几何体检（lint）与逐页预览（preview） ----------
+
+_SLD_SZ_RE = re.compile(r'<p:sldSz[^>]*cx="(\d+)"[^>]*cy="(\d+)"')
+_TR_H_RE = re.compile(r'<a:tr[^>]*\bh="(\d+)"')
+_SZ_RE = re.compile(r'<a:sz val="(\d+)"')          # 子元素写法
+_SZ_ATTR_RE = re.compile(r'<a:rPr[^>]*\bsz="(\d+)"')  # 属性写法（python-pptx 用这个）
+_SP_ANY_RE = re.compile(r"<p:(sp|pic|graphicFrame)>.*?</p:\1>", re.S)
+_GRPSP_RE = re.compile(r"<p:grpSp>.*?</p:grpSp>", re.S)
+_PARA_RE = re.compile(r"<a:p>.*?</a:p>", re.S)
+_BODYPR_RE = re.compile(r"<a:bodyPr([^>]*)>")
+_INSET_RE = {k: re.compile(k + r'="(\d+)"') for k in ("lIns", "rIns", "tIns", "bIns")}
+
+
+def page_size(data: dict) -> tuple[int, int]:
+    """页面尺寸（pt）：读 `ppt/presentation.xml` 的 `p:sldSz`；缺省按 960×540（16:9）。"""
+    raw = data.get("ppt/presentation.xml", b"").decode("utf-8", "ignore")
+    m = _SLD_SZ_RE.search(raw)
+    if not m:
+        return 960, 540
+    return int(m.group(1)) // 12700, int(m.group(2)) // 12700
+
+
+def _insets(seg: str) -> tuple[float, float, float, float]:
+    """文本框内边距（pt，左／右／上／下）：读 `a:bodyPr` 的属性，缺省 7.2pt（PowerPoint 默认）。"""
+    m = _BODYPR_RE.search(seg)
+    attrs = m.group(1) if m else ""
+
+    def get(k: str) -> float:
+        mm = _INSET_RE[k].search(attrs)
+        return int(mm.group(1)) / 12700 if mm else 7.2
+
+    return get("lIns"), get("rIns"), get("tIns"), get("bIns")
+
+
+def _char_units(text: str) -> float:
+    """文本宽度估算（em）：全角 1.0、半角 0.55。只用于**预警**，不参与排版计算。"""
+    return sum(1.0 if unicodedata.east_asian_width(c) in ("W", "F") else 0.55 for c in text)
+
+
+def _wrapped_lines(paras: list[tuple[str, float]], avail_w: float) -> int:
+    """按可用宽度估算折行数（逐段累加，遇框宽即换行）。"""
+    lines = 0
+    for text, size in paras:
+        if not text:
+            lines += 1
+            continue
+        used, cur = 0.0, 1
+        for ch in text:
+            w = (1.0 if unicodedata.east_asian_width(ch) in ("W", "F") else 0.55) * size
+            if used + w > avail_w:
+                cur += 1
+                used = w
+            else:
+                used += w
+        lines += cur
+    return lines
+
+
+def lint(path: str, tol: int = 2, overlap: bool = False, text_check: bool = True) -> dict:
+    """几何体检：越界（错误）／表格被内容撑高／文本超出框（警告）。
+
+    这三条正是「生成—渲染—肉眼发现—改坐标」循环的主要来源：
+    越界与表格撑高是**确定性问题**（PowerPoint 会裁掉或撑开），文本溢出是**估算**
+    （全角 1em／半角 0.55em，未计字距与标点挤压），故只作警告、不失败。
+    """
+    infos, data = load(path)
+    pw, ph = page_size(data)
+    slides, n_err, n_warn = [], 0, 0
+
+    for name in sorted((i.filename for i in infos if SLIDE_RE.match(i.filename)),
+                       key=lambda n: int(SLIDE_RE.match(n).group(1))):
+        n = int(SLIDE_RE.match(name).group(1))
+        xml = data[name].decode("utf-8")
+        errors, warnings, geo = [], [], []
+        groups = [(g.start(), g.end()) for g in _GRPSP_RE.finditer(xml)]
+        grouped = 0
+
+        for m in _SP_ANY_RE.finditer(xml):
+            if any(a <= m.start() < b for a, b in groups):
+                grouped += 1
+                continue                      # 组内坐标是相对组原点的，越界／重叠判定不可信
+            kind, seg = m.group(1), m.group(0)
+            b = _box(seg)
+            if not b:
+                continue
+            label = {"sp": "形状", "pic": "图片", "graphicFrame": "图形框"}[kind]
+            txt = "".join(runs(seg))[:20].replace("\n", " ")
+            geo.append({"kind": kind, "box": b, "text": txt})
+
+            # 越界分级：带文字的实质内容超出＞8pt 判错误；装饰件／轻微超出降为警告
+            # ——手工排版 PPT 常把素材暂存在画布外，一律判错会淹没真问题（实测模板 2/2 假阳性）
+            over = []
+            if b["x"] < -tol:
+                over.append(f"左边界 {b['x']}pt < 0")
+            if b["y"] < -tol:
+                over.append(f"上边界 {b['y']}pt < 0")
+            if b["x"] + b["w"] > pw + tol:
+                over.append(f"右边界 {b['x'] + b['w']}pt > 页宽 {pw}pt")
+            if b["y"] + b["h"] > ph + tol:
+                over.append(f"下边界 {b['y'] + b['h']}pt > 页高 {ph}pt")
+            if over:
+                major = max(b["x"] + b["w"] - pw, b["y"] + b["h"] - ph, -b["x"], -b["y"])
+                msg = f"{label}@({b['x']},{b['y']}) " + "／".join(over)
+                if txt.strip() and major > 8:
+                    errors.append(msg)
+                else:
+                    warnings.append(msg + "（无文字或轻微，疑为画布外暂存）")
+
+            # 表格：行高之和 > 框高 ⇒ PowerPoint 会撑开表格，末行常被裁
+            if kind == "graphicFrame" and "<a:tbl>" in seg:
+                hs = [int(x) for x in _TR_H_RE.findall(seg)]
+                if hs and sum(hs) // 12700 > b["h"] + tol:
+                    errors.append(f"表格@({b['x']},{b['y']}) 行高合计 {sum(hs) // 12700}pt > 框高 {b['h']}pt"
+                                  f"（渲染时会被撑开，末行易被裁）")
+
+            # 文本溢出：估算折行所需高度 vs 框高
+            if text_check and kind == "sp" and "normAutofit" not in seg:   # 自动缩字的框不估
+                paras, sizes = [], []
+                for pm in _PARA_RE.finditer(seg):
+                    ptxt = "".join(runs(pm.group(0)))
+                    szs = ([int(x) / 100 for x in _SZ_ATTR_RE.findall(pm.group(0))]
+                           + [int(x) / 100 for x in _SZ_RE.findall(pm.group(0))])
+                    sz = max(szs) if szs else 18.0
+                    if ptxt:
+                        paras.append((ptxt, sz))
+                        sizes.append(sz)
+                if paras and b["w"] > 0 and b["h"] > 0:
+                    li, ri, ti, bi = _insets(seg)
+                    avail = max(b["w"] - li - ri, 10)
+                    lines = _wrapped_lines(paras, avail)
+                    need = lines * max(sizes) * 1.25 + ti + bi   # 行距 1.25＋实际上下内边距
+                    if need > b["h"] * 1.15 + tol:
+                        warnings.append(f"文本可能溢出：@({b['x']},{b['y']}) 估需 {need:.0f}pt / 框高 {b['h']}pt"
+                                        f"「{txt}」")
+
+        if overlap:
+            for i in range(len(geo)):
+                for j in range(i + 1, len(geo)):
+                    a, c = geo[i]["box"], geo[j]["box"]
+                    ix = min(a["x"] + a["w"], c["x"] + c["w"]) - max(a["x"], c["x"])
+                    iy = min(a["y"] + a["h"], c["y"] + c["h"]) - max(a["y"], c["y"])
+                    if ix <= 2 or iy <= 2:
+                        continue
+                    inside = (a["x"] >= c["x"] and a["y"] >= c["y"] and a["x"] + a["w"] <= c["x"] + c["w"]
+                              and a["y"] + a["h"] <= c["y"] + c["h"]) or \
+                             (c["x"] >= a["x"] and c["y"] >= a["y"] and c["x"] + c["w"] <= a["x"] + a["w"]
+                              and c["y"] + c["h"] <= a["y"] + a["h"])
+                    if not inside:                          # 完全包含＝有意叠放（底色块＋文字），不报
+                        warnings.append(f"部分重叠：{geo[i]['kind']}@({a['x']},{a['y']}) × "
+                                        f"{geo[j]['kind']}@({c['x']},{c['y']}) 交叠 {ix}×{iy}pt")
+
+        n_err += len(errors)
+        n_warn += len(warnings)
+        slides.append({"slide": n, "errors": errors, "warnings": warnings,
+                       **({"skipped_grouped": grouped} if grouped else {})})
+
+    return {"file": os.path.basename(path), "page": {"w": pw, "h": ph},
+            "errors": n_err, "warnings": n_warn, "slides": slides}
+
+
+def preview(path: str, out: str | None = None, dpi: int = 100) -> dict:
+    """渲染为逐页 PNG（PowerPoint 导出 PDF → `pdftoppm` 转图），供逐页肉眼核对。
+
+    输出默认落系统临时目录 `office-docs-preview/<stem>/p-01.png…`；工具缺失时明确提示
+    安装（macOS：`brew install poppler`），不静默降级。
+    """
+    rnd = render(path)
+    if not rnd.get("ok"):
+        return {"file": os.path.basename(path), "ok": False,
+                "reason": rnd.get("reason") or "渲染失败"}
+    tool = shutil.which("pdftoppm")
+    if not tool:
+        return {"file": os.path.basename(path), "ok": False, "pdf": rnd["pdf"],
+                "reason": "缺少 pdftoppm（macOS：brew install poppler）"}
+    stem = os.path.splitext(os.path.basename(path))[0]
+    outdir = out or os.path.join(tempfile.gettempdir(), "office-docs-preview", stem)
+    os.makedirs(outdir, exist_ok=True)
+    for old in os.listdir(outdir):
+        if re.fullmatch(r"p-\d+\.png", old):
+            os.remove(os.path.join(outdir, old))
+    subprocess.run([tool, "-png", "-r", str(dpi), rnd["pdf"], os.path.join(outdir, "p")],
+                   check=True, capture_output=True)
+    files = sorted(f for f in os.listdir(outdir) if re.fullmatch(r"p-\d+\.png", f))
+    return {"file": os.path.basename(path), "ok": True, "pdf": rnd["pdf"],
+            "out": outdir, "dpi": dpi, "pages": len(files),
+            "first": os.path.join(outdir, files[0]) if files else None}
+
+
 def _read_tsv(path: str) -> list[list[str]]:
     """读 TSV 为二维文本（整表重写用）；空行跳过。"""
     rows = []
@@ -2702,6 +2894,45 @@ def pptx_main(args: list[str], ctx: Context) -> int:
             + (f"，备份 {res['backup']}" if res["backup"] else "")
             + (f"\n⚠ {res['aspect_warn']}" if res["aspect_warn"] else "")))
         return 0
+
+    if cmd == "lint":
+        if not rest:
+            print(USAGE)
+            return 2
+        res = lint(rest[0],
+                   tol=int(_opt(rest, "--tol") or 2),
+                   overlap=_flag(rest, "--overlap"),
+                   text_check=not _flag(rest, "--no-text"))
+
+        def human_lint():
+            print(f"{res['file']}  页 {res['page']['w']}×{res['page']['h']}pt"
+                  f"  错误 {res['errors']}／警告 {res['warnings']}")
+            for s in res["slides"]:
+                if not (s["errors"] or s["warnings"]):
+                    continue
+                print(f"\nslide{s['slide']}")
+                for e in s["errors"]:
+                    print(f"  ✗ {e}")
+                for w in s["warnings"]:
+                    print(f"  ! {w}")
+            if not (res["errors"] or res["warnings"]):
+                print("几何体检通过（无越界／无表格撑高／无文本溢出预警）")
+
+        _print(res, ctx, human_lint)
+        if res["errors"]:
+            return 1
+        return 1 if (_flag(rest, "--strict") and res["warnings"]) else 0
+
+    if cmd == "preview":
+        if not rest:
+            print(USAGE)
+            return 2
+        res = preview(rest[0], out=_opt(rest, "--out"),
+                      dpi=int(_opt(rest, "--dpi") or 100))
+        _print(res, ctx, lambda: print(
+            f"{res['file']} → {res['pages']} 页 PNG（{res['dpi']}dpi）\n  {res['out']}"
+            if res.get("ok") else f"预览失败：{res['reason']}"))
+        return 0 if res.get("ok") else 2
 
     if cmd == "check":
         if not rest:
