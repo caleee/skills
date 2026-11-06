@@ -1,0 +1,481 @@
+#!/usr/bin/env python3
+"""md-site — Markdown 交付包工具链（skill `md-site`）
+
+判据见 ../SKILL.md。三种能力，彼此独立：
+
+  pack  <src>    md 目录 → zip（顶层同名目录、UTF-8 文件名标志 0x800）
+  build <src>    md 目录 → 离线 VitePress 站 → zip（相对路径 / mermaid 预渲染 / 宽屏）
+  check <zip>    产物校验（编码标志、HTML 属性合法性、站内断链）
+
+**离线站的硬要求**（SKILL.md §2，均为实测事故）：
+  1. 一切资源与站内链接相对化，且**必须保留属性等号**——曾用子串替换把 `=` 吃掉，
+     生成 `href"../assets/x`，浏览器静默忽略样式与脚本（页面「没样式」但无报错）；
+  2. mermaid 构建期渲染成 SVG，`file://` 下客户端渲染不可用；
+  3. 宽屏（VitePress 默认 688px 内容区）；
+  4. 中文 URL 只匹配前缀、不解码。
+
+零依赖（标准库）；`build` 另需项目 `node_modules` 里的 vitepress 与 PATH 上的 mmdc。
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import html as htmllib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.parse
+import zipfile
+from pathlib import Path
+
+# ── 常量 ────────────────────────────────────────────────────────────────────
+
+#: 属性提取：**整段连引号一起匹配**，替换时原样保留引号与等号（`SKILL.md` §2 第 1 条）。
+_ATTR = re.compile(r'\b(href|src)=(["\'])([^"\']*)\2')
+
+#: 畸形属性：`href"x"` / `src 'x'`（等号被吃掉）——出现即视为构建后处理失败。
+_MALFORMED = re.compile(r'\b(?:href|src)(?=\s*["\'])')
+
+#: 外链 / 锚点 / 特殊 scheme：不参与相对化与断链。
+_SKIP_REF = ("#", "http://", "https://", "//", "mailto:", "data:", "javascript:", "tel:")
+
+_MMD_BLOCK = re.compile(r"^```mermaid[ \t]*\r?\n(.*?)^```[ \t]*$", re.S | re.M)
+
+_MD_LINK = re.compile(r"!?\[[^\]]*\]\(\s*([^)\s]+)")
+
+CSS = """:root { --vp-layout-max-width: 100%; }
+.VPDoc .container { max-width: 100%; }
+.VPDoc .content-container,
+.VPDoc.has-aside .content-container { max-width: none; }
+.VPDoc .content { max-width: none; padding-left: 48px; padding-right: 48px; }
+.VPDoc .aside { max-width: 320px; }
+.vp-doc table { display: table; width: 100%; }
+.vp-doc img { max-width: 100%; height: auto; }
+@media (max-width: 960px) {
+  .VPDoc .content { padding-left: 24px; padding-right: 24px; }
+}
+"""
+
+THEME_INDEX = """import DefaultTheme from 'vitepress/theme'
+import './custom.css'
+export default DefaultTheme
+"""
+
+OPEN_README = """{title} · 离线页面（{date}）
+
+一、直接阅读
+双击 index.html，用浏览器打开。正文、目录、页面跳转、样式与流程图均可用；
+全文搜索与暗色切换依赖脚本，在本地文件模式下不生效。
+
+二、完整体验（含搜索）
+在本目录打开终端，执行：python3 -m http.server 8000
+然后用浏览器访问本机 8000 端口。
+
+三、说明
+本目录为离线阅读副本，内容与同批交付的 md 文稿一致。
+"""
+
+
+# ── 小工具 ──────────────────────────────────────────────────────────────────
+
+def _md_files(src: Path) -> list[Path]:
+    return sorted(p for p in src.rglob("*.md") if not _hidden(p, src))
+
+
+def _hidden(path: Path, base: Path) -> bool:
+    return any(part.startswith(".") for part in path.relative_to(base).parts)
+
+
+def _title_of(src: Path) -> str:
+    """首个 md 的 H1；没有则回落到目录名。"""
+    for md in _md_files(src):
+        for line in md.read_text(encoding="utf-8").splitlines():
+            if line.startswith("# "):
+                return line[2:].strip()
+    return src.name
+
+
+def _date_of(src: Path, fallback: str) -> str:
+    """从稿内「交付日期：YYYY-MM-DD」取日期；取不到用 fallback。"""
+    for md in _md_files(src):
+        m = re.search(r"(?:交付|更新)\s*日期[：:]\s*(\d{4}-\d{2}-\d{2})",
+                      md.read_text(encoding="utf-8")[:2000])
+        if m:
+            return m.group(1)
+    return fallback
+
+
+def _find_root(start: Path) -> Path:
+    for cand in [start.resolve(), *start.resolve().parents]:
+        if (cand / ".git").exists():
+            return cand
+    return start.resolve()
+
+
+def _vitepress(root: Path) -> list[str]:
+    cand = root / "node_modules/.bin/vitepress"
+    if cand.exists():
+        return [str(cand)]
+    if shutil.which("npx"):
+        return ["npx", "--yes", "vitepress"]
+    raise SystemExit("找不到 vitepress：请在项目内安装（npm i -D vitepress）或将其置入 node_modules")
+
+
+def _mmdc() -> list[str]:
+    exe = shutil.which("mmdc")
+    if exe:
+        return [exe]
+    if shutil.which("npx"):
+        return ["npx", "--yes", "@mermaid-js/mermaid-cli", "mmdc"]
+    raise SystemExit("找不到 mmdc：npm i -g @mermaid-js/mermaid-cli（离线页的流程图必须构建期渲染）")
+
+
+def _zip_mtime(path: Path) -> tuple[int, int, int, int, int, int]:
+    st = time.localtime(path.stat().st_mtime)
+    dt = (max(st.tm_year, 1980), st.tm_mon, st.tm_mday, st.tm_hour, st.tm_min, st.tm_sec)
+    return dt  # type: ignore[return-value]
+
+
+# ── 打包 ────────────────────────────────────────────────────────────────────
+
+def zip_tree(src: Path, zip_path: Path, top: str) -> int:
+    """把 `src` 整棵树打进 `zip_path`，zip 内顶层目录名固定为 `top`。
+
+    中文条目**显式置 UTF-8 标志 0x800**（Windows 资源管理器按本地代码页解压，
+    无此标志即乱码）；目录项不入包（由文件路径隐式表达）。
+    """
+    zip_path.parent.mkdir(parents=True, exist_ok=True)
+    count = 0
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        for path in sorted(src.rglob("*")):
+            if not path.is_file() or _hidden(path, src):
+                continue
+            arc = f"{top}/{path.relative_to(src).as_posix()}"
+            info = zipfile.ZipInfo(arc, date_time=_zip_mtime(path))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o644 << 16
+            info.flag_bits |= 0x800
+            with zf.open(info, "w") as dst, path.open("rb") as fp:
+                shutil.copyfileobj(fp, dst)
+            count += 1
+    return count
+
+
+# ── 离线站：构建 ────────────────────────────────────────────────────────────
+
+def relativize(text: str, depth: int) -> str:
+    """把 HTML 里的站内绝对/`./` 路径按页面深度改成相对路径。
+
+    **必须保留引号与等号**——这是两次返工的根因（见模块头）。只认 `href=` / `src=`，
+    不碰正文文本，也不碰 `#` / `http` / `data:` 等外部引用。
+    """
+    def repl(m: re.Match[str]) -> str:
+        attr, quote, path = m.group(1), m.group(2), m.group(3)
+        # **只改 `/` 开头的**。VitePress 对正文 md 链接已经生成相对当前页的 `./xx.html`，
+        # 再改一遍会变成 `../xx.html`（实测：把 `02-数据库设计/05-…` 链到根目录，全站断链）。
+        if path == "/":                               # 站根：保留尾部斜杠
+            return f'{attr}={quote}{"../" * depth or "./"}{quote}'
+        if path.startswith("./../"):                  # VitePress 对 `../x.md` 的产物，去掉多余 `./`
+            return f'{attr}={quote}{path[2:]}{quote}'
+        if not path.startswith("/"):
+            return m.group(0)                         # 外部引用 / 空属性 / 已是相对
+        return f'{attr}={quote}{"../" * depth}{path[1:]}{quote}'
+
+    return _ATTR.sub(repl, text)
+
+
+def html_problems(text: str, page: Path, root: Path) -> list[str]:
+    """单页缺陷：属性缺等号（后处理事故）＋ 站内断链。"""
+    probs: list[str] = []
+    label = page.relative_to(root).as_posix()
+    for m in _MALFORMED.finditer(text):
+        snippet = text[m.start():m.start() + 60].replace("\n", " ")
+        probs.append(f"{label}: 属性缺等号（后处理把 `=` 吃掉了）：{snippet}")
+    for m in _ATTR.finditer(text):
+        ref = htmllib.unescape(m.group(3)).strip()
+        if not ref or ref.startswith(_SKIP_REF):
+            continue
+        if ref.startswith("/"):
+            probs.append(f"{label}: 绝对路径残留（file:// 下指向磁盘根）：{ref}")
+            continue
+        target = (page.parent / urllib.parse.unquote(ref.split("#", 1)[0].split("?", 1)[0])).resolve()
+        if not target.exists():
+            probs.append(f"{label}: 断链 {ref}")
+    return probs
+
+
+def md_problems(text: str, page: Path, root: Path) -> list[str]:
+    """md 包内相对链接是否存在（包内相对链接是交付约定）。"""
+    probs: list[str] = []
+    label = page.relative_to(root).as_posix()
+    for m in _MD_LINK.finditer(text):
+        ref = m.group(1).strip("<>")
+        if ref.startswith(_SKIP_REF) or ref.startswith("//"):
+            continue
+        target = (page.parent / urllib.parse.unquote(ref.split("#", 1)[0].split("?", 1)[0])).resolve()
+        if not target.exists():
+            probs.append(f"{label}: 断链 {ref}")
+    return probs
+
+
+def _sidebar(directory: Path, base: Path) -> list[dict]:
+    items: list[dict] = []
+    entries = sorted(directory.iterdir(), key=lambda p: (p.is_file(), p.name))
+    for entry in entries:
+        if entry.name.startswith("."):
+            continue
+        if entry.is_dir():
+            kids = _sidebar(entry, base)
+            if kids:
+                items.append({"text": entry.name, "items": kids})
+        elif entry.suffix == ".md" and entry.name != "index.md":
+            link = "/" + entry.relative_to(base).with_suffix("").as_posix()
+            items.append({"text": entry.stem, "link": link})
+    return items
+
+
+def _config(title: str, desc: str, sidebar: list[dict], lang: str) -> str:
+    return f"""import {{ defineConfig }} from 'vitepress'
+
+export default defineConfig({{
+  base: '/',
+  lang: {json.dumps(lang, ensure_ascii=False)},
+  title: {json.dumps(title, ensure_ascii=False)},
+  description: {json.dumps(desc, ensure_ascii=False)},
+  themeConfig: {{
+    outline: {{ level: [2, 3] }},
+    sidebar: {json.dumps(sidebar, ensure_ascii=False, indent=2)},
+  }},
+}})
+"""
+
+
+def _render_mermaid(text: str, page: Path, work: Path, mmdc: list[str]) -> str:
+    """把 ```mermaid 块预渲染成 SVG，并改为相对图片引用（`file://` 下唯一可靠的方式）。"""
+    diagrams = work / "diagrams"
+    diagrams.mkdir(exist_ok=True)
+
+    def repl(m: re.Match[str]) -> str:
+        code = m.group(1)
+        digest = hashlib.sha1(code.encode("utf-8")).hexdigest()[:8]
+        svg = diagrams / f"{page.stem}-{digest}.svg"
+        if not svg.exists():
+            mmd = diagrams / f".{digest}.mmd"
+            mmd.write_text(code, encoding="utf-8")
+            try:
+                subprocess.run([*mmdc, "-i", str(mmd), "-o", str(svg), "-b", "white", "-s", "2"],
+                               check=True, capture_output=True, text=True)
+            except subprocess.CalledProcessError as exc:
+                raise SystemExit(f"mermaid 渲染失败（{page.name}）：{exc.stderr.strip()[:400]}") from exc
+            finally:
+                mmd.unlink(missing_ok=True)
+        rel = os.path.relpath(svg, page.parent).replace(os.sep, "/")
+        return f"![图]({rel})"
+
+    return _MMD_BLOCK.sub(repl, text)
+
+
+def build_site(src: Path, work: Path, title: str, date: str, lang: str) -> Path:
+    """复制 md → 预渲染图 → 生成配置 → vitepress build → 相对化 → 返回 dist。"""
+    if work.exists():
+        shutil.rmtree(work)
+    work.mkdir(parents=True)
+
+    for path in src.rglob("*"):
+        if path.is_dir() or _hidden(path, src):
+            continue
+        dst = work / path.relative_to(src)
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, dst)
+
+    # 首页：无 index.md 时用首个稿作副本（保留原页，侧栏首页指向 /）
+    if not (work / "index.md").exists():
+        first = _md_files(work)[0]
+        shutil.copy2(first, work / "index.md")
+
+    mmdc = _mmdc()
+    for md in _md_files(work):
+        text = md.read_text(encoding="utf-8")
+        if "```mermaid" in text:
+            md.write_text(_render_mermaid(text, md, work, mmdc), encoding="utf-8")
+
+    theme = work / ".vitepress/theme"
+    theme.mkdir(parents=True, exist_ok=True)
+    (theme / "index.ts").write_text(THEME_INDEX, encoding="utf-8")
+    (theme / "custom.css").write_text(CSS, encoding="utf-8")
+
+    sidebar = [{"text": "交付说明", "link": "/"}, *_sidebar(work, work)]
+    (work / ".vitepress/config.mts").write_text(
+        _config(title, f"{date} 对外交付", sidebar, lang), encoding="utf-8")
+
+    root = _find_root(work)
+    subprocess.run([*_vitepress(root), "build", "."], cwd=work, check=True)
+
+    dist = work / ".vitepress/dist"
+    for page in dist.rglob("*.html"):
+        depth = len(page.relative_to(dist).parent.parts)
+        page.write_text(relativize(page.read_text(encoding="utf-8"), depth), encoding="utf-8")
+    # 渲染函数（js）里也带着同样的 `./../x`：等价但难看。仅做这一处规范化，不动别的路径。
+    for script in dist.rglob("*.js"):
+        script.write_text(script.read_text(encoding="utf-8").replace("./../", "../"),
+                          encoding="utf-8")
+    return dist
+
+
+def verify_tree(root: Path, *, html: bool) -> list[str]:
+    probs: list[str] = []
+    for page in sorted(root.rglob("*.html")) if html else []:
+        probs.extend(html_problems(page.read_text(encoding="utf-8"), page, root))
+    for page in sorted(root.rglob("*.md")):
+        probs.extend(md_problems(page.read_text(encoding="utf-8"), page, root))
+    return probs
+
+
+# ── 校验 ────────────────────────────────────────────────────────────────────
+
+def check_zip(zip_path: Path) -> list[str]:
+    """产物校验：编码标志、路径分隔符、解压后属性与断链。"""
+    probs: list[str] = []
+    if not zip_path.exists():
+        return [f"文件不存在：{zip_path}"]
+    with zipfile.ZipFile(zip_path) as zf:
+        infos = zf.infolist()
+        if not infos:
+            return ["包内无文件"]
+        tops = {i.filename.split("/")[0] for i in infos}
+        if len(tops) != 1:
+            probs.append(f"顶层目录不唯一（应有且只有一个）：{sorted(tops)}")
+        for info in infos:
+            if ".." in Path(info.filename).parts:
+                probs.append(f"{info.filename}: 路径含 ..（解压逃逸风险）")
+            if "\\" in info.filename:
+                probs.append(f"{info.filename}: 使用反斜杠分隔（跨平台风险）")
+            if not info.filename.isascii() and not (info.flag_bits & 0x800):
+                probs.append(f"{info.filename}: 缺 UTF-8 标志（Windows 解压乱码）")
+        with tempfile.TemporaryDirectory() as td:
+            zf.extractall(td)
+            root = Path(td)
+            has_html = any(root.rglob("*.html"))
+            if has_html and not list(root.rglob("index.html")):
+                probs.append("离线包缺 index.html（无法双击打开）")
+            probs.extend(verify_tree(root, html=has_html))
+    return probs
+
+
+# ── 命令 ────────────────────────────────────────────────────────────────────
+
+def _naming(src: Path, args: argparse.Namespace) -> tuple[str, str]:
+    title = args.title or _title_of(src)
+    date = args.date or _date_of(src, time.strftime("%Y-%m-%d"))
+    name = args.name or f"{title}_{date}"
+    return name, date
+
+
+def cmd_pack(args: argparse.Namespace) -> int:
+    src = Path(args.src).resolve()
+    if not src.is_dir():
+        print(f"错误：目录不存在 {src}", file=sys.stderr)
+        return 2
+    name, _ = _naming(src, args)
+    out = Path(args.out).resolve() / f"{name}.zip"
+    count = zip_tree(src, out, args.top or name)
+    if args.json:
+        print(json.dumps({"zip": str(out), "files": count}, ensure_ascii=False))
+    else:
+        print(f"{out}  ({count} 个文件)")
+    return 0
+
+
+def cmd_build(args: argparse.Namespace) -> int:
+    src = Path(args.src).resolve()
+    if not src.is_dir():
+        print(f"错误：目录不存在 {src}", file=sys.stderr)
+        return 2
+    name, date = _naming(src, args)
+    title = args.title or _title_of(src)
+    out_dir = Path(args.out).resolve()
+    work = Path(args.work).resolve() if args.work else out_dir / ".tmp" / "md-site"
+    try:
+        dist = build_site(src, work, title, date, args.lang)
+    except subprocess.CalledProcessError as exc:
+        print(f"错误：vitepress 构建失败（退出码 {exc.returncode}）", file=sys.stderr)
+        return 1
+
+    (dist / "打开说明.txt").write_text(
+        OPEN_README.format(title=title, date=date), encoding="utf-8")
+
+    probs = verify_tree(dist, html=True)
+    if probs:
+        print("构建产物校验失败：", file=sys.stderr)
+        for p in probs:
+            print(f"  - {p}", file=sys.stderr)
+        return 1
+
+    zip_path = out_dir / f"{name}_{args.suffix}.zip"
+    count = zip_tree(dist, zip_path, f"{name}_{args.suffix}")
+    if args.json:
+        print(json.dumps({"zip": str(zip_path), "files": count}, ensure_ascii=False))
+    else:
+        print(f"{zip_path}  ({count} 个文件)")
+    if not args.keep:
+        shutil.rmtree(work, ignore_errors=True)
+    return 0
+
+
+def cmd_check(args: argparse.Namespace) -> int:
+    probs = check_zip(Path(args.zip).resolve())
+    if args.json:
+        print(json.dumps({"problems": probs}, ensure_ascii=False, indent=2))
+    elif probs:
+        print(f"发现 {len(probs)} 个问题：")
+        for p in probs:
+            print(f"  - {p}")
+    else:
+        print("OK：编码标志、属性、站内链接均无问题")
+    return 1 if probs else 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="md-site",
+        description="Markdown 交付包工具链：打包 / 离线 VitePress 站 / 产物校验")
+    parser.add_argument("--root", help="项目根（定位 node_modules）；默认向上找 .git")
+    parser.add_argument("--json", action="store_true", help="机器可读输出")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    p_pack = sub.add_parser("pack", help="md 目录 → zip")
+    p_pack.add_argument("src")
+    p_pack.add_argument("--out", default="dist", help="产物目录（默认 dist）")
+    p_pack.add_argument("--name", help="包名（默认 <标题>_<日期>）")
+    p_pack.add_argument("--title")
+    p_pack.add_argument("--date")
+    p_pack.add_argument("--top", help="zip 内顶层目录名（默认同包名）")
+    p_pack.set_defaults(func=cmd_pack)
+
+    p_build = sub.add_parser("build", help="md 目录 → 离线 VitePress 站 → zip")
+    p_build.add_argument("src")
+    p_build.add_argument("--out", default="dist", help="产物目录（默认 dist）")
+    p_build.add_argument("--name", help="包名（默认 <标题>_<日期>）")
+    p_build.add_argument("--title")
+    p_build.add_argument("--date")
+    p_build.add_argument("--suffix", default="offline", help="离线包后缀（默认 offline）")
+    p_build.add_argument("--work", help="构建中转目录（默认 <out>/.tmp/md-site）")
+    p_build.add_argument("--keep", action="store_true", help="保留中转目录")
+    p_build.add_argument("--lang", default="zh-CN")
+    p_build.set_defaults(func=cmd_build)
+
+    p_check = sub.add_parser("check", help="校验 zip 产物")
+    p_check.add_argument("zip")
+    p_check.set_defaults(func=cmd_check)
+
+    args = parser.parse_args(argv)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
