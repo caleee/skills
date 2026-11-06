@@ -14,6 +14,7 @@
 | 把 xlsx 区域搬进 pptx | `xlsx dump` 看结构 → `pptx add-table --from <xlsx> --range <区域>` |
 | md 表格 → xlsx | `xlsx from-md <md> --out <xlsx>` |
 | 脚本生成的页面 | `pptx lint` 先拦越界／表格撑高；`pptx preview` 出逐页 PNG 肉眼核对 |
+| 图／文字塞不进框 | `image-fit --box w,h` 先算落位与显示比例；`text-fit` 算折行与最大字号（`--apply` 降字号） |
 | 收尾自证 | `pptx check [--render]`；差异 `pptx diff` 回填 md |
 
 ## 快速开始
@@ -29,6 +30,10 @@ office-docs pptx set deck.pptx --at slide2!tbl0.r1.c2 --text "新描述"
 # 3) 几何体检 + 逐页预览（脚本生成时先跑，省掉「改一次渲染一次」）
 office-docs pptx lint deck.pptx
 office-docs pptx preview deck.pptx
+
+# 3.5) 排版前先算：图放多大会糊、这段字多大能放下
+office-docs pptx image-fit deck.pptx --at slide2!pic[0] --box 340,212
+office-docs pptx text-fit  --text "人员自动落到租户" --width 340 --height 60
 
 # 4) 自证 + 回填
 office-docs pptx check deck.pptx

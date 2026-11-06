@@ -17,6 +17,7 @@ import importlib.machinery
 import importlib.util
 import io
 import json
+import struct
 import tempfile
 import unittest
 import zipfile
@@ -106,6 +107,21 @@ class Fixture(unittest.TestCase):
     def tearDown(self):
         od.CFG["baseline"] = None
         self._tmp.cleanup()
+
+    def _swap_slide(self, slide_xml: str, slide: int = 1) -> None:
+        """把第 `slide` 页的 spTree 内容换成 `slide_xml`（其余条目原样保留）。"""
+        entries = _entries(self.deck)
+        entries["ppt/slides/slide%d.xml" % slide] = (
+            _DECL + f"<p:sld {_NS}><p:cSld><p:spTree>"
+            '<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/>'
+            "<p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm>"
+            '<a:off x="0" y="0"/><a:ext cx="0" cy="0"/>'
+            '<a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/>'
+            "</a:xfrm></p:grpSpPr>" + slide_xml +
+            "</p:spTree></p:cSld></p:sld>").encode()
+        with zipfile.ZipFile(self.deck, "w", zipfile.ZIP_DEFLATED) as z:
+            for k, v in entries.items():
+                z.writestr(k, v)
 
     def run_cli(self, args: list[str]) -> tuple[int, str]:
         buf = io.StringIO()
@@ -291,19 +307,6 @@ class TestXlsx(Fixture):
 class TestLint(Fixture):
     """几何体检：越界／表格撑高判错误，文本溢出估算判警告（实测口径见 SKILL.md §6）。"""
 
-    def _swap_slide(self, slide_xml: str) -> None:
-        entries = _entries(self.deck)
-        entries["ppt/slides/slide1.xml"] = (_DECL + f"<p:sld {_NS}><p:cSld><p:spTree>"
-                                           '<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/>'
-                                           "<p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm>"
-                                           '<a:off x="0" y="0"/><a:ext cx="0" cy="0"/>'
-                                           '<a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/>'
-                                           "</a:xfrm></p:grpSpPr>" + slide_xml +
-                                           "</p:spTree></p:cSld></p:sld>").encode()
-        with zipfile.ZipFile(self.deck, "w", zipfile.ZIP_DEFLATED) as z:
-            for k, v in entries.items():
-                z.writestr(k, v)
-
     def test_clean_deck_has_no_findings(self):
         res = od.lint(self.deck)
         self.assertEqual((res["errors"], res["warnings"]), (0, 0))
@@ -353,6 +356,124 @@ class TestLint(Fixture):
         res = od.lint(self.deck)
         self.assertEqual(res["errors"], 0)
         self.assertEqual(res["slides"][0].get("skipped_grouped"), 1)
+
+
+class TestFit(Fixture):
+    """image-fit／text-fit：适配计算与写回（srcRect／`a:ext`／字号）。"""
+
+    @staticmethod
+    def _png(w: int, h: int) -> bytes:
+        """只够 `_image_size` 读的 PNG 头（签名 + IHDR 宽高）。"""
+        return (b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR"
+                + struct.pack(">II", w, h) + b"\x08\x02\x00\x00\x00" + b"\x00" * 16)
+
+    def _pic_deck(self, px_w: int = 1600, px_h: int = 1000,
+                  x: int = 1270000, y: int = 635000,
+                  cx: int = 2540000, cy: int = 1270000) -> None:
+        """一页一张图（200×100pt 默认），rels 指向 `ppt/media/image1.png`。"""
+        pic = ('<p:pic><p:nvPicPr><p:cNvPr id="3" name="Picture"/>'
+               '<p:cNvPicPr/><p:nvPr/></p:nvPicPr>'
+               '<p:blipFill><a:blip r:embed="rId9"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>'
+               f'<p:spPr><a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm>'
+               '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>')
+        self._swap_slide(pic)
+        entries = _entries(self.deck)
+        entries["ppt/slides/_rels/slide1.xml.rels"] = (
+            _DECL + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/'
+            'relationships"><Relationship Id="rId9" Type="http://schemas.openxmlformats.org/'
+            'officeDocument/2006/relationships/image" Target="../media/image1.png"/>'
+            "</Relationships>").encode()
+        entries["ppt/media/image1.png"] = self._png(px_w, px_h)
+        with zipfile.ZipFile(self.deck, "w", zipfile.ZIP_DEFLATED) as z:
+            for k, v in entries.items():
+                z.writestr(k, v)
+
+    def _text_sp(self, text: str, sz_cent: int, cx: int = 2540000, cy: int = 1270000) -> str:
+        body = f'<a:r><a:rPr lang="zh-CN" sz="{sz_cent}"/><a:t>{text}</a:t></a:r>'
+        return ('<p:sp><p:nvSpPr><p:cNvPr id="2" name="Shape 2"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>'
+                f'<p:spPr><a:xfrm><a:off x="1270000" y="635000"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm>'
+                '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>'
+                f'<p:txBody><a:bodyPr/><a:lstStyle/><a:p>{body}</a:p></p:txBody></p:sp>')
+
+    # ---- image-fit ----
+
+    def test_image_contain_keeps_aspect(self):
+        self._pic_deck()                                  # 1600×1000 图，200×100pt 框
+        r = od.image_fit(self.deck, ref="slide1!pic[0]")
+        self.assertEqual((r["box"]["w"], r["box"]["h"]), (160.0, 100.0))
+        self.assertEqual(r["was"]["w"], 200)
+        self.assertEqual(r["source"], "ppt/media/image1.png")
+
+    def test_image_cover_fills_box_and_crops_vertically(self):
+        self._pic_deck()
+        r = od.image_fit(self.deck, ref="slide1!pic[0]", mode="cover")
+        self.assertEqual((r["box"]["w"], r["box"]["h"]), (200.0, 100.0))
+        self.assertEqual(r["crop"]["l"], 0.0)
+        self.assertAlmostEqual(r["crop"]["t"], 0.1, places=3)     # (125-100)/2/125
+
+    def test_image_apply_writes_ext_and_src_rect(self):
+        self._pic_deck()
+        out = str(self.dir / "out.pptx")
+        r = od.image_fit(self.deck, ref="slide1!pic[0]", box=(150, 150), mode="cover",
+                         apply=True, out=out)
+        self.assertTrue(r["applied"])
+        xml = _entries(out)["ppt/slides/slide1.xml"].decode()
+        self.assertIn("<a:srcRect", xml)
+        self.assertIn('cy="1905000"', xml)                # 150pt
+
+    def test_display_ratio_warns_and_dpr_explains_it(self):
+        self._pic_deck()
+        r = od.image_fit(self.deck, ref="slide1!pic[0]")
+        self.assertLess(r["ratio"], 0.3)
+        self.assertEqual(r["level"], "warn")
+        self.assertIn("色块", r["warn"])
+        r4 = od.image_fit(self.deck, ref="slide1!pic[0]", dpr=4)
+        self.assertAlmostEqual(r4["ratio"], r["ratio"] * 4, places=2)
+        self.assertIsNone(od.image_fit(self.deck, ref="slide1!pic[0]", dpr=8)["warn"])
+        self.assertEqual(od.image_fit(self.deck, ref="slide1!pic[0]", dpr=3)["level"], "info")
+
+    def test_image_file_needs_box(self):
+        png = str(self.dir / "shot.png")
+        Path(png).write_bytes(self._png(1600, 1000))
+        with self.assertRaises(od.PptxError):
+            od.image_fit(png)
+        r = od.image_fit(png, box=(300, 200))
+        self.assertAlmostEqual(r["box"]["w"], 300.0)
+        self.assertAlmostEqual(r["box"]["h"], 187.5)
+
+    # ---- text-fit ----
+
+    def test_text_fit_calc_full_and_half_width(self):
+        self.assertEqual(od.text_fit(text="中文排版", width=200)["text_width"], 72.0)   # 4×18pt
+        self.assertAlmostEqual(od.text_fit(text="abcd", width=200)["em"], 2.2, places=2)
+
+    def test_max_size_is_the_boundary(self):
+        text = "中" * 20
+        r = od.text_fit(text=text, width=200, height=40)
+
+        def fits(s):
+            return od._wrapped_lines([(text, s)], 200) * s * 1.25 <= 40
+
+        self.assertTrue(fits(r["max_size"]))
+        self.assertFalse(fits(r["max_size"] + 1.0))
+
+    def test_text_fit_file_overflow_and_apply_shrinks(self):
+        self._swap_slide(self._text_sp("这" * 60, 1800))    # 60 全角字塞进 200×100pt
+        r = od.text_fit(self.deck, ref="slide1!sp[0]")
+        self.assertFalse(r["fits"])
+        self.assertLess(r["max_size"], r["size"])
+        out = str(self.dir / "out.pptx")
+        r2 = od.text_fit(self.deck, ref="slide1!sp[0]", apply=True, out=out)
+        self.assertTrue(r2["applied"])
+        self.assertLess(r2["to_pt"], r["size"])
+        self.assertIn('sz="%d"' % round(r2["to_pt"] * 100),
+                      _entries(out)["ppt/slides/slide1.xml"].decode())
+
+    def test_text_fit_fitting_box_is_left_alone(self):
+        self._swap_slide(self._text_sp("短", 1800))
+        r = od.text_fit(self.deck, ref="slide1!sp[0]", apply=True)
+        self.assertFalse(r["applied"])
+        self.assertIn("已放得下", r["note"])
 
 
 class TestJsonFlag(Fixture):

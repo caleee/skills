@@ -101,6 +101,12 @@ pptx 子命令：
                           几何体检：越界与表格撑高＝错误；文本溢出估算＝警告（--strict 时也失败）
   office-docs pptx preview <file> [--out <目录>] [--dpi 100] [--json]
                           渲染成逐页 PNG（导出 PDF → pdftoppm），默认落系统临时目录
+  office-docs pptx image-fit <pptx|图片> [--at slideN!pic[i]] [--box w,h] [--mode contain|cover]
+                          [--align c|t|b|l|r] [--dpr N] [--apply] [--out <file>] [--json]
+                          图片与框的适配：算落位／裁切并提示显示比例（原图缩得太小＝投影看不清）
+  office-docs pptx text-fit  [<file> --at slideN!sp[i] | --text <文本> --width <pt>] [--height <pt>]
+                          [--size <pt>] [--apply] [--out <file>] [--json]
+                          中文文本宽度估算：折行数与所需高度，给高度则反算最大字号（--apply 只降不升）
   office-docs pptx add-table <file> --from <xlsx> --range <区域> [--sheet <名> | --index N] [--slide N]
                            [--at x,y] [--size w,h] [--out <file>]   把 xlsx 区域搬成原生表格（带样式）
   office-docs pptx add-slide <file> [--layout N] [--out <file>]     末尾新增一页空白页
@@ -2266,6 +2272,7 @@ _GRPSP_RE = re.compile(r"<p:grpSp>.*?</p:grpSp>", re.S)
 _PARA_RE = re.compile(r"<a:p>.*?</a:p>", re.S)
 _BODYPR_RE = re.compile(r"<a:bodyPr([^>]*)>")
 _INSET_RE = {k: re.compile(k + r'="(\d+)"') for k in ("lIns", "rIns", "tIns", "bIns")}
+_REF_TAG = {"sp": "sp", "pic": "pic", "graphicFrame": "gf"}
 
 
 def page_size(data: dict) -> tuple[int, int]:
@@ -2332,11 +2339,14 @@ def lint(path: str, tol: int = 2, overlap: bool = False, text_check: bool = True
         groups = [(g.start(), g.end()) for g in _GRPSP_RE.finditer(xml)]
         grouped = 0
 
+        counters = {"sp": -1, "pic": -1, "graphicFrame": -1}
         for m in _SP_ANY_RE.finditer(xml):
+            kind, seg = m.group(1), m.group(0)
+            counters[kind] += 1
+            where = "slide%d!%s[%d]" % (n, _REF_TAG[kind], counters[kind])
             if any(a <= m.start() < b for a, b in groups):
                 grouped += 1
                 continue                      # 组内坐标是相对组原点的，越界／重叠判定不可信
-            kind, seg = m.group(1), m.group(0)
             b = _box(seg)
             if not b:
                 continue
@@ -2357,7 +2367,7 @@ def lint(path: str, tol: int = 2, overlap: bool = False, text_check: bool = True
                 over.append(f"下边界 {b['y'] + b['h']}pt > 页高 {ph}pt")
             if over:
                 major = max(b["x"] + b["w"] - pw, b["y"] + b["h"] - ph, -b["x"], -b["y"])
-                msg = f"{label}@({b['x']},{b['y']}) " + "／".join(over)
+                msg = f"{where} {label}@({b['x']},{b['y']}) " + "／".join(over)
                 if txt.strip() and major > 8:
                     errors.append(msg)
                 else:
@@ -2367,7 +2377,7 @@ def lint(path: str, tol: int = 2, overlap: bool = False, text_check: bool = True
             if kind == "graphicFrame" and "<a:tbl>" in seg:
                 hs = [int(x) for x in _TR_H_RE.findall(seg)]
                 if hs and sum(hs) // 12700 > b["h"] + tol:
-                    errors.append(f"表格@({b['x']},{b['y']}) 行高合计 {sum(hs) // 12700}pt > 框高 {b['h']}pt"
+                    errors.append(f"{where} 表格@({b['x']},{b['y']}) 行高合计 {sum(hs) // 12700}pt > 框高 {b['h']}pt"
                                   f"（渲染时会被撑开，末行易被裁）")
 
             # 文本溢出：估算折行所需高度 vs 框高
@@ -2387,7 +2397,7 @@ def lint(path: str, tol: int = 2, overlap: bool = False, text_check: bool = True
                     lines = _wrapped_lines(paras, avail)
                     need = lines * max(sizes) * 1.25 + ti + bi   # 行距 1.25＋实际上下内边距
                     if need > b["h"] * 1.15 + tol:
-                        warnings.append(f"文本可能溢出：@({b['x']},{b['y']}) 估需 {need:.0f}pt / 框高 {b['h']}pt"
+                        warnings.append(f"文本可能溢出：{where}@({b['x']},{b['y']}) 估需 {need:.0f}pt / 框高 {b['h']}pt"
                                         f"「{txt}」")
 
         if overlap:
@@ -2441,6 +2451,326 @@ def preview(path: str, out: str | None = None, dpi: int = 100) -> dict:
     return {"file": os.path.basename(path), "ok": True, "pdf": rnd["pdf"],
             "out": outdir, "dpi": dpi, "pages": len(files),
             "first": os.path.join(outdir, files[0]) if files else None}
+
+
+# ---------- 适配计算（image-fit / text-fit） ----------
+
+_SRCRECT_RE = re.compile(r'<a:srcRect\b[^>]*/>')
+_BLIP_RE = re.compile(r'<a:blip\b[^>]*/>')
+
+
+def _px(v: float) -> float:
+    """pt → px：PowerPoint 按 96dpi 显示，1pt ＝ 4/3 px。"""
+    return v * 96 / 72
+
+
+def _set_xfrm(seg: str, x: float, y: float, w: float, h: float) -> str:
+    """改写形状的 `<a:off>`／`<a:ext>`（入参 pt，写出 EMU）。"""
+    m = _OFF_EXT_RE.search(seg)
+    if not m:
+        raise PptxError("目标没有 <a:off>／<a:ext>，无法改尺寸")
+    rep = '<a:off x="%d" y="%d"/><a:ext cx="%d" cy="%d"/>' % (
+        int(round(x * 12700)), int(round(y * 12700)),
+        int(round(w * 12700)), int(round(h * 12700)))
+    return seg[:m.start()] + rep + seg[m.end():]
+
+
+def _set_crop(seg: str, crop: dict) -> str:
+    """写 `<a:srcRect>`（裁切，单位 1/1000 %）：有则替换、无则插在 `<a:blip>` 之后。"""
+    val = '<a:srcRect l="%d" t="%d" r="%d" b="%d"/>' % tuple(
+        int(round(crop[k] * 100000)) for k in ("l", "t", "r", "b"))
+    m = _SRCRECT_RE.search(seg)
+    if m:
+        return seg[:m.start()] + val + seg[m.end():]
+    m = _BLIP_RE.search(seg)
+    if not m:
+        raise PptxError("图片没有 <a:blip>，无法写裁切")
+    return seg[:m.end()] + val + seg[m.end():]
+
+
+def _pic_media(data: dict, n: int, seg: str) -> tuple[str, bytes] | None:
+    """图片形状 → 它引用的媒体条目（`r:embed` → slide rels → `ppt/media/…`）。"""
+    m = _BLIP_RE.search(seg)
+    if not m:
+        return None
+    rid = re.search(r'r:embed="([^"]+)"', m.group(0))
+    if not rid:
+        return None
+    rels = data.get("ppt/slides/_rels/slide%d.xml.rels" % n, b"").decode("utf-8", "ignore")
+    for rm in re.finditer(r"<Relationship\b([^>]*)/>", rels):
+        attrs = rm.group(1)
+        if not re.search(r'\bId="%s"' % re.escape(rid.group(1)), attrs):
+            continue
+        t = re.search(r'Target="([^"]+)"', attrs)
+        if not t:
+            return None
+        name = t.group(1).lstrip("/")
+        if not name.startswith("ppt/"):
+            name = os.path.normpath(os.path.join("ppt/slides", name)).replace(os.sep, "/")
+        return (name, data[name]) if name in data else None
+    return None
+
+
+def _halign(align: str) -> float:
+    return {"l": 0.0, "r": 1.0}.get(align, 0.5)
+
+
+def _valign(align: str) -> float:
+    return {"t": 0.0, "b": 1.0}.get(align, 0.5)
+
+
+def _fit(pw: int, ph: int, bw: float, bh: float, mode: str) -> tuple[float, float, float]:
+    """把 pw×ph 的图放进 bw×bh 的框：返回（缩放比, 宽, 高）。
+
+    contain＝缩到框内（可能留白，不裁图）；cover＝缩到铺满（超出部分要裁）。
+    """
+    if min(pw, ph, bw, bh) <= 0:
+        raise PptxError("图片或框尺寸无效")
+    s = min(bw / pw, bh / ph) if mode == "contain" else max(bw / pw, bh / ph)
+    return s, pw * s, ph * s
+
+
+def image_fit(path: str, *, ref: str | None = None, box: tuple[float, float] | None = None,
+              mode: str = "contain", align: str = "c", dpr: float = 1.0,
+              apply: bool = False, out: str | None = None, force: bool = False) -> dict:
+    """图片与框的适配：算落位／裁切，并提示**显示比例**。
+
+    解决的是「截图塞进框」这类返工：原图 1600px 宽放进 340pt 的框，显示比例只有 28%，
+    投影上小字一律糊掉——应当裁剪截图或换元素级截图，而不是硬塞。
+
+    - `contain`：框随图等比缩小，**不裁图**（可能留白）；`apply` 时改 `<a:ext>`。
+    - `cover`：框不变，裁掉溢出部分（写 `<a:srcRect>`），铺满不留白。
+    - 入参是图片文件时只算不写（必须给 `--box`）。
+    """
+    if mode not in ("contain", "cover"):
+        raise PptxError("--mode 只接受 contain／cover")
+    if align not in ("c", "t", "b", "l", "r"):
+        raise PptxError("--align 只接受 c／t／b／l／r")
+
+    if not path.lower().endswith(".pptx"):
+        if box is None:
+            raise PptxError("给图片做适配必须同时给 --box w,h（目标框尺寸，pt）")
+        with open(path, "rb") as f:
+            blob = f.read()
+        size = _image_size(blob, os.path.splitext(path)[1].lower())
+        if not size:
+            raise PptxError(f"读不出图片尺寸：{path}（支持 png／jpg／gif／bmp）")
+        _, fw, fh = _fit(size[0], size[1], box[0], box[1], mode)
+        w, h = (box[0], box[1]) if mode == "cover" else (fw, fh)
+        crop = ({"l": max(0.0, (fw - box[0]) / 2 / fw), "r": max(0.0, (fw - box[0]) / 2 / fw),
+                 "t": max(0.0, (fh - box[1]) / 2 / fh), "b": max(0.0, (fh - box[1]) / 2 / fh)}
+                if mode == "cover" else {"l": 0.0, "t": 0.0, "r": 0.0, "b": 0.0})
+        r = {"file": os.path.basename(path), "source": path, "pixels": list(size),
+             "mode": mode, "target": {"w": box[0], "h": box[1]},
+             "box": {"x": 0, "y": 0, "w": round(w, 1), "h": round(h, 1)},
+             "crop": crop, "applied": False}
+        r.update(_fit_metrics(size, box[0], box[1], w, h, mode, dpr))
+        return r
+
+    m = re.match(r"^slide(\d+)!pic\[(\d+)\]$", ref or "")
+    if not m:
+        raise PptxError("image-fit 的 --at 只接受 `slideN!pic[i]`（图片形状，见 pptx media）")
+    n = int(m.group(1))
+    if out is None and not force and _is_readonly_baseline(path):
+        raise PptxError(f"拒绝就地改写模板基线：{path}（另存用 --out，确需就地加 --force）")
+    infos, data = load(path)
+    slide_name = "ppt/slides/slide%d.xml" % n
+    if slide_name not in data:
+        raise PptxError(f"没有 {slide_name}")
+    xml = data[slide_name].decode("utf-8")
+    s0, e0 = _find_nth(_SHAPE_TAGS["pic"], xml, int(m.group(2)))
+    seg = xml[s0:e0]
+    cur = _box(seg)
+    if cur is None:
+        raise PptxError(f"{ref} 没有位置信息（<a:off>／<a:ext>）")
+    found = _pic_media(data, n, seg)
+    if found is None:
+        raise PptxError(f"{ref} 找不到它引用的媒体文件（rels 未指向 ppt/media）")
+    mname, blob = found
+    size = _image_size(blob, os.path.splitext(mname)[1].lower())
+    if not size:
+        raise PptxError(f"读不出图片尺寸：{mname}")
+
+    tw, th = (box[0], box[1]) if box else (cur["w"], cur["h"])
+    _, fw, fh = _fit(size[0], size[1], tw, th, mode)     # 等比缩放后的自然尺寸
+    if mode == "cover":
+        w, h = tw, th                                    # 框不变，靠裁切铺满
+        crop = {"l": max(0.0, (fw - tw) / 2 / fw), "r": max(0.0, (fw - tw) / 2 / fw),
+                "t": max(0.0, (fh - th) / 2 / fh), "b": max(0.0, (fh - th) / 2 / fh)}
+    else:
+        w, h = fw, fh                                    # 框随图缩，不裁切
+        crop = {"l": 0.0, "t": 0.0, "r": 0.0, "b": 0.0}
+    # 给了目标框 → 在框内按 align 落位；没给 → 保持原左上角，只改尺寸
+    x = cur["x"] + (tw - w) * _halign(align) if box else cur["x"]
+    y = cur["y"] + (th - h) * _valign(align) if box else cur["y"]
+    r = {"file": os.path.basename(path), "source": mname, "pixels": list(size),
+         "mode": mode, "ref": ref, "was": cur,
+         "box": {"x": x, "y": y, "w": round(w, 1), "h": round(h, 1)},
+         "applied": False}
+    r.update(_fit_metrics(size, tw, th, w, h, mode, dpr))
+    r.update({"crop": crop})
+
+    if apply:
+        seg_new = _set_xfrm(seg, x, y, w, h)
+        if mode == "cover":
+            seg_new = _set_crop(seg_new, crop)
+        new_xml = xml[:s0] + seg_new + xml[e0:]
+        ET.fromstring(new_xml)                          # 写前自检
+        data[slide_name] = new_xml.encode("utf-8")
+        target = out or path
+        backup = None
+        if not out:
+            backup = "%s.bak.pptx" % os.path.splitext(path)[0]
+            shutil.copyfile(path, backup)
+        _write_verified(target, infos, data, backup)
+        r.update({"file": os.path.basename(target), "applied": True, "backup": backup})
+    return r
+
+
+def _fit_metrics(size, bw: float, bh: float, w: float, h: float, mode: str,
+                 dpr: float = 1.0) -> dict:
+    """显示比例与提示：ratio 是「显示像素 ÷ 原图逻辑像素」，越小人越看不清。
+
+    `dpr` 是截图时的像素密度（2 倍图传 2）——否则高分屏截图会被误判成「缩得太小」。
+    """
+    ratio = _px(w) / (size[0] / max(dpr, 0.1))
+    out = {"display": {"w": round(w, 1), "h": round(h, 1)},
+           "ratio": round(ratio, 3), "level": None, "warn": None}
+    if ratio < 0.3:
+        out["level"] = "warn"
+        out["warn"] = (f"显示比例仅 {ratio:.0%}（原图 {size[0]}×{size[1]}px → "
+                       f"{w:.0f}×{h:.0f}pt）：投影上只剩色块，建议裁剪截图或换单元素截图")
+    elif ratio < 0.55:
+        out["level"] = "info"
+        out["warn"] = (f"显示比例 {ratio:.0%}：布局可辨、小字不可读"
+                       f"（需要让人看清文字就再裁一版）")
+    if mode == "contain" and w and h:
+        free = 1 - (w * h) / (bw * bh)
+        if free > 0.25:
+            out["pad_warn"] = f"长宽比失配，留白占框 {free:.0%}（改 --mode cover 可铺满，但会裁图）"
+    return out
+
+
+def _max_size_for(texts: list[str], avail_w: float, avail_h: float, hi: float,
+                  spacing: float = 1.25, floor: float = 6.0) -> float:
+    """反算：在 avail_w×avail_h 内放得下的**最大统一字号**（二分；折行是阶跃函数）。"""
+    hi = max(hi, avail_h / spacing)                      # 单行时的自然上界，别被当前字号卡住
+
+    def need(s: float) -> float:
+        return _wrapped_lines([(t, s) for t in texts], avail_w) * s * spacing
+
+    if need(floor) > avail_h:
+        return floor
+    if need(hi) <= avail_h:
+        return hi
+    lo = floor
+    for _ in range(24):
+        mid = (lo + hi) / 2
+        if need(mid) <= avail_h:
+            lo = mid
+        else:
+            hi = mid
+    return lo
+
+
+def text_fit(path: str | None = None, *, ref: str | None = None, text: str | None = None,
+             width: float | None = None, height: float | None = None,
+             size: float | None = None, spacing: float = 1.25, apply: bool = False,
+             out: str | None = None, force: bool = False) -> dict:
+    """中文文本宽度估算：给定文本＋可用宽度，算折行数与所需高度；给了高度就反算最大字号。
+
+    估算口径：全角 1em、半角 0.55em，行距 1.25（与 `lint` 的文本预警同一套，便于互相印证）。
+    两种用法——`--text` 纯算（排版前先问「这几个字多宽」），`--at` 体检文件中已有的文本框
+    （`--apply` 顺手把字号压到放得下，只降不升）。
+    """
+    if text is not None:
+        if width is None:
+            raise PptxError("--text 模式必须给 --width（可用宽度，pt）")
+        sz = size or 18.0
+        em = _char_units(text)
+        lines = _wrapped_lines([(text, sz)], max(width, 1))
+        res = {"mode": "calc", "text": text, "size": sz, "width": width,
+               "em": round(em, 2), "text_width": round(em * sz, 1),
+               "lines": lines, "need": round(lines * sz * spacing, 1)}
+        if height:
+            res["height"] = height
+            res["fits"] = res["need"] <= height + 0.5
+            res["max_size"] = round(_max_size_for([text], width, height, sz, spacing), 1)
+        return res
+
+    m = re.match(r"^slide(\d+)!sp\[(\d+)\]$", ref or "")
+    if not m:
+        raise PptxError("text-fit 的 --at 只接受 `slideN!sp[i]`（带文字的形状）")
+    n = int(m.group(1))
+    if apply and out is None and not force and _is_readonly_baseline(path):
+        raise PptxError(f"拒绝就地改写模板基线：{path}（另存用 --out，确需就地加 --force）")
+    infos, data = load(path)
+    slide_name = "ppt/slides/slide%d.xml" % n
+    if slide_name not in data:
+        raise PptxError(f"没有 {slide_name}")
+    xml = data[slide_name].decode("utf-8")
+    s0, e0 = _find_nth(_SHAPE_TAGS["sp"], xml, int(m.group(2)))
+    seg = xml[s0:e0]
+    b = _box(seg)
+    if b is None:
+        raise PptxError(f"{ref} 没有位置信息")
+    li, ri, ti, bi = _insets(seg)
+    avail_w = max(b["w"] - li - ri, 10)
+    avail_h = max(b["h"] - ti - bi, 10)
+
+    paras = []
+    for pm in _PARA_RE.finditer(seg):
+        t = "".join(runs(pm.group(0)))
+        if not t:
+            continue
+        szs = ([int(x) / 100 for x in _SZ_ATTR_RE.findall(pm.group(0))]
+               + [int(x) / 100 for x in _SZ_RE.findall(pm.group(0))])
+        paras.append({"text": t, "size": max(szs) if szs else 18.0})
+    if not paras:
+        raise PptxError(f"{ref} 没有文字")
+
+    max_sz = max(p["size"] for p in paras)
+    lines = _wrapped_lines([(p["text"], p["size"]) for p in paras], avail_w)
+    need = lines * max_sz * spacing + ti + bi
+    fit_sz = _max_size_for([p["text"] for p in paras], avail_w, avail_h, max_sz, spacing)
+
+    res = {"mode": "file", "file": os.path.basename(path), "ref": ref, "box": b,
+           "avail": {"w": round(avail_w, 1), "h": round(avail_h, 1)},
+           "size": max_sz, "lines": lines, "need": round(need, 1),
+           "margin": round(b["h"] - need, 1),
+           "fits": need <= b["h"] + 0.5, "max_size": round(fit_sz, 1),
+           "paras": [{"text": p["text"][:24], "size": p["size"]} for p in paras],
+           "applied": False}
+
+    if apply:
+        new_pt = max(6.0, int(fit_sz * 2) / 2)          # 向下取到 0.5pt
+        if new_pt >= max_sz - 0.01:
+            res["note"] = "当前字号已放得下，未改动"
+            return res
+        new_sz = int(round(new_pt * 100))
+        seg_new = re.sub(r'(<a:(?:rPr|endParaRPr|defRPr)\b[^>]*\bsz=")\d+(")',
+                         lambda mm: mm.group(1) + str(new_sz) + mm.group(2), seg)
+        new_xml = xml[:s0] + seg_new + xml[e0:]
+        ET.fromstring(new_xml)                          # 写前自检
+        data[slide_name] = new_xml.encode("utf-8")
+        target = out or path
+        backup = None
+        if not out:
+            backup = "%s.bak.pptx" % os.path.splitext(path)[0]
+            shutil.copyfile(path, backup)
+        _write_verified(target, infos, data, backup)
+        after_lines = _wrapped_lines([(p["text"], new_pt) for p in paras], avail_w)
+        after_need = after_lines * new_pt * spacing + ti + bi
+        res.update({"file": os.path.basename(target), "applied": True, "to_pt": new_pt,
+                    "to_lines": after_lines, "to_need": round(after_need, 1),
+                    "fits_after": after_need <= b["h"] + 0.5,
+                    "runs": len(re.findall(r'<a:(?:rPr|endParaRPr|defRPr)\b[^>]*\bsz="\d+"', seg_new)),
+                    "backup": backup})
+        if not res["fits_after"]:
+            res["note"] = f"压到 {new_pt}pt（下限）仍放不下：请加高框或删减文字"
+        elif new_pt < 8:
+            res["note"] = f"字号已降到 {new_pt}pt，投影上偏小：建议删减文案" 
+    return res
 
 
 def _read_tsv(path: str) -> list[list[str]]:
@@ -2933,6 +3263,82 @@ def pptx_main(args: list[str], ctx: Context) -> int:
             f"{res['file']} → {res['pages']} 页 PNG（{res['dpi']}dpi）\n  {res['out']}"
             if res.get("ok") else f"预览失败：{res['reason']}"))
         return 0 if res.get("ok") else 2
+
+    if cmd == "image-fit":
+        if not rest:
+            print(USAGE)
+            return 2
+        raw = _opt(rest, "--box")
+        box_t = None
+        if raw:
+            parts = [p.strip() for p in raw.replace("，", ",").split(",") if p.strip()]
+            if len(parts) != 2:
+                print("错误：--box 需要 `w,h`（pt，如 340,212）", flush=True)
+                return 2
+            box_t = (float(parts[0]), float(parts[1]))
+        res = image_fit(rest[0], ref=_opt(rest, "--at"), box=box_t,
+                        mode=_opt(rest, "--mode") or "contain",
+                        align=_opt(rest, "--align") or "c",
+                        dpr=float(_opt(rest, "--dpr") or 1),
+                        apply=_flag(rest, "--apply"), out=_opt(rest, "--out"),
+                        force=_flag(rest, "--force"))
+
+        def human_img():
+            b, px = res["box"], res["pixels"]
+            print(f"{res['file']}  {res['mode']}  {px[0]}×{px[1]}px → {b['w']:.0f}×{b['h']:.0f}pt"
+                  f"（显示比例 {res['ratio']:.0%}）")
+            print(f"  落位 x={b['x']} y={b['y']}")
+            if res["mode"] == "cover":
+                c = res["crop"]
+                print("  裁切 " + "／".join(f"{k}={c[k]:.1%}" for k in ("l", "t", "r", "b")))
+            for key in ("warn", "pad_warn"):
+                if res.get(key):
+                    print(f"  {'!' if res.get('level') == 'warn' else '·'} {res[key]}")
+            if res.get("applied"):
+                print(f"  已写入 {res['file']}"
+                      + (f"（备份 {res['backup']}）" if res.get("backup") else "（另存）"))
+
+        _print(res, ctx, human_img)
+        return 0
+
+    if cmd == "text-fit":
+        def num(name):
+            v = _opt(rest, name)
+            return float(v) if v else None
+
+        path = rest[0] if rest and not rest[0].startswith("-") else None
+        if path is None and _opt(rest, "--text") is None:
+            print(USAGE)
+            return 2
+        res = text_fit(path, ref=_opt(rest, "--at"), text=_opt(rest, "--text"),
+                       width=num("--width"), height=num("--height"), size=num("--size"),
+                       apply=_flag(rest, "--apply"), out=_opt(rest, "--out"),
+                       force=_flag(rest, "--force"))
+
+        def human_text():
+            if res["mode"] == "calc":
+                print(f"「{res['text'][:40]}」 {res['em']}em × {res['size']}pt"
+                      f" ＝ {res['text_width']}pt（可用宽 {res['width']}pt）")
+                print(f"  折 {res['lines']} 行，需高 {res['need']}pt")
+                if "fits" in res:
+                    print(f"  框高 {res['height']}pt → {'放得下' if res['fits'] else '放不下'}"
+                          f"；最大可用字号 {res['max_size']}pt")
+            else:
+                print(f"{res['file']} ← {res['ref']}  字号 {res['size']}pt"
+                      f"  可用 {res['avail']['w']}×{res['avail']['h']}pt")
+                print(f"  折 {res['lines']} 行，需高 {res['need']}pt / 框高 {res['box']['h']}pt"
+                      f" → {'放得下' if res['fits'] else '放不下'}（余量 {res['margin']}pt）")
+                if not res["fits"]:
+                    print(f"  最大可用字号 {res['max_size']}pt")
+                if res.get("applied"):
+                    print(f"  已把 {res.get('runs')} 处字号改为 {res['to_pt']}pt"
+                          f" → {res['to_lines']} 行／需高 {res['to_need']}pt"
+                          + (f"，备份 {res['backup']}" if res.get("backup") else "（另存）"))
+                if res.get("note"):
+                    print(f"  ! {res['note']}")
+
+        _print(res, ctx, human_text)
+        return 0
 
     if cmd == "check":
         if not rest:
