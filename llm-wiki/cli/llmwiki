@@ -25,6 +25,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -1098,6 +1099,103 @@ def cmd_move(cfg, a):
     return 0
 
 
+# ─────────────────────────── 出口层清洗 ───────────────────────────
+#: 规则文件默认位置（相对项目根）；`.llm-wiki.toml` 的 `[clean].rules` 可覆盖。
+DEFAULT_CLEAN_RULES = "docs/delivery/clean-rules.json"
+
+
+def _load_rules(path: Path, profile: str) -> list[dict]:
+    """读规则 JSON，按 profile 合并 `common` ＋（external 时）`external`。
+
+    两类规则：`replace`（正则 → 替换串，`--apply` 才落盘）与 `report`（命中只报）。
+    **`replace` 仅限「删掉或替换后句子仍然通顺」的条目**——编号、AI 字样这类需要重写
+    整句的，只能 `report`，自动替换会产出病句。
+    """
+    if not path.exists():
+        die(f"规则文件不存在：{path}")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        die(f"规则文件不是合法 JSON：{path}（{exc}）")
+
+    out: list[dict] = []
+    sections = ["common"] + (["external"] if profile == "external" else [])
+    for sec in sections:
+        block = data.get(sec) or {}
+        for kind in ("replace", "report"):
+            for i, spec in enumerate(block.get(kind) or []):
+                pattern = spec.get("pattern")
+                if not pattern:
+                    die(f"{path} 的 {sec}.{kind}[{i}] 缺 pattern")
+                try:
+                    rx = re.compile(pattern)
+                except re.error as exc:
+                    die(f"规则正则无效 {pattern!r}（{exc}）")
+                out.append({"kind": kind, "rx": rx, "repl": spec.get("repl", ""),
+                            "why": spec.get("why") or spec.get("name") or pattern,
+                            "section": sec})
+    return out
+
+
+def cmd_clean(cfg, a):
+    """出口层清洗：默认 dry-run，`--apply` 才落盘（`MT-217`）。"""
+    root: Path = cfg["_root"]
+    target = Path(a.dir).expanduser()
+    if not target.is_absolute():
+        target = root / target
+    if not target.is_dir():
+        die(f"目录不存在：{target}")
+
+    rules_path = Path(a.rules).expanduser() if a.rules else root / str(
+        cfg.get("clean.rules") or DEFAULT_CLEAN_RULES)
+    rules = _load_rules(rules_path, a.profile)
+    if not rules:
+        die(f"规则为空：{rules_path}（profile={a.profile}）")
+
+    reports: list[tuple[Path, int, dict, str]] = []
+    fixes: list[tuple[Path, int, dict, str, str]] = []
+    changed: dict[Path, str] = {}
+
+    for md in sorted(target.rglob("*.md")):
+        rel = md.relative_to(root) if md.is_relative_to(root) else md
+        if any(part.startswith(".") for part in md.relative_to(target).parts):
+            continue
+        text = md.read_text(encoding="utf-8")
+        lines = text.splitlines(keepends=True)
+        for i, raw in enumerate(lines, 1):
+            cur = raw
+            for rule in rules:
+                if rule["kind"] == "report":
+                    if rule["rx"].search(cur):
+                        reports.append((rel, i, rule, cur.strip()[:100]))
+                    continue
+                new = rule["rx"].sub(rule["repl"], cur)
+                if new != cur:
+                    fixes.append((rel, i, rule, cur.strip()[:100], new.strip()[:100]))
+                    cur = new
+            if cur != raw:
+                lines[i - 1] = cur
+                changed[md] = "".join(lines)
+
+    for path, i, rule, before, after in fixes:
+        tag = "已改" if a.apply else "待改"
+        print(f"~ {path}:{i}  [{tag}·{rule['why']}] {before}  →  {after}")
+    for path, i, rule, text in reports:
+        print(f"✗ {path}:{i}  [需人工·{rule['why']}] {text}")
+
+    if a.apply:
+        for path, content in changed.items():
+            path.write_text(content, encoding="utf-8")
+
+    pending = len(reports) + (0 if a.apply else len(fixes))
+    print(f"\n{'[apply]' if a.apply else '[dry-run]'} profile={a.profile} "
+          f"扫描 {sum(1 for _ in target.rglob('*.md'))} 篇："
+          f"{'已改' if a.apply else '待改'} {len(fixes)}，需人工 {len(reports)}")
+    if not a.apply and fixes:
+        print("（加 --apply 落盘；编号与 AI 字样只会报告，不会自动改写）")
+    return 1 if pending else 0
+
+
 # ─────────────────────────── 入口 ───────────────────────────
 def build_parser() -> argparse.ArgumentParser:
     """命令面真源——`SKILL.md` §6 的命令表以它为准（测试双向断言）。"""
@@ -1140,6 +1238,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("src"); p.add_argument("outdir"); p.add_argument("stem")
     p.add_argument("--pdf-theme", default=""); p.add_argument("--mermaid-theme", default="")
     p.set_defaults(fn=cmd_pdf)
+
+    p = sub.add_parser("clean", help="出口层清洗：按规则集检测/替换（默认 dry-run）")
+    p.add_argument("dir", help="待清洗目录（相对项目根或绝对路径）")
+    p.add_argument("--rules", help=f"规则 JSON（默认取 [clean].rules，回落 {DEFAULT_CLEAN_RULES}）")
+    p.add_argument("--profile", choices=["external", "internal"], default="external",
+                   help="external=common＋脱敏/范围（默认）；internal=仅 common")
+    p.add_argument("--apply", action="store_true", help="落盘（默认只打印，不写文件）")
+    p.set_defaults(fn=cmd_clean)
 
     p = sub.add_parser("move", help="移动稿件并重算全仓站内相对链接")
     p.add_argument("src"); p.add_argument("dst")

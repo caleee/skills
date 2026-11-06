@@ -822,5 +822,89 @@ class MoveTests(unittest.TestCase):
             self.assertEqual(self.wiki.cmd_move(self._cfg(root), args), 1)
 
 
+class CleanTests(unittest.TestCase):
+    """`llmwiki clean`：出口层清洗（`MT-217`）。
+
+    核心判据：**默认不落盘**；`replace` 只做「替换后句子仍通顺」的条目，
+    `report` 永不自动改写；`--profile internal` 不跑 external 段（脱敏/范围）。
+    """
+
+    RULES = {
+        "common": {
+            "replace": [{"pattern": "(?<![A-Za-z])PM 系统(?![A-Za-z])",
+                         "repl": "项目管理系统", "why": "沟通简称"}],
+            "report": [{"pattern": "(?<![A-Za-z0-9])MT-[0-9]{3,}", "why": "内部编号"}],
+        },
+        "external": {"report": [{"pattern": "10\\.16\\.", "why": "内网地址"}]},
+    }
+
+    def setUp(self):
+        self.wiki = _load_cli()
+
+    def _fixture(self, root: Path, text: str) -> Path:
+        (root / "docs").mkdir(parents=True, exist_ok=True)
+        (root / "rules.json").write_text(__import__("json").dumps(self.RULES, ensure_ascii=False),
+                                         encoding="utf-8")
+        p = root / "docs/a.md"
+        p.write_text(text, encoding="utf-8")
+        return p
+
+    def _args(self, root: Path, **kw) -> Namespace:
+        base = dict(dir="docs", rules=str(root / "rules.json"),
+                    profile="external", apply=False)
+        base.update(kw)
+        return Namespace(**base)
+
+    def _cfg(self, root: Path) -> dict:
+        return {"_root": root, "site.root": "docs", "lint.ignore": []}
+
+    def test_dry_run_reports_but_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            p = self._fixture(root, "# 标题\n\n由 PM 系统推送\n见 MT-211\n")
+            self.assertEqual(self.wiki.cmd_clean(self._cfg(root), self._args(root)), 1)
+            self.assertIn("PM 系统", p.read_text(encoding="utf-8"))
+
+    def test_apply_replaces_but_never_rewrites_ids(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            p = self._fixture(root, "# 标题\n\n由 PM 系统推送\n见 MT-211 的裁决\n")
+            self.assertEqual(
+                self.wiki.cmd_clean(self._cfg(root), self._args(root, apply=True)), 1)
+            text = p.read_text(encoding="utf-8")
+            self.assertIn("项目管理系统推送", text)        # replace 生效
+            self.assertNotIn("PM", text)
+            self.assertIn("MT-211", text)                  # report 不动（需人工重写）
+
+    def test_profile_internal_skips_external_rules(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            self._fixture(root, "# 标题\n\n入口 http://10.16.0.13/x\n")
+            # external 命中内网地址 → 1
+            self.assertEqual(self.wiki.cmd_clean(self._cfg(root), self._args(root)), 1)
+            # internal 不跑 external 段 → 0
+            self.assertEqual(
+                self.wiki.cmd_clean(self._cfg(root), self._args(root, profile="internal")), 0)
+
+    def test_clean_tree_passes(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            self._fixture(root, "# 标题\n\n正文不含任何禁用内容。\n")
+            self.assertEqual(self.wiki.cmd_clean(self._cfg(root), self._args(root)), 0)
+
+    def test_missing_rules_file_exits(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            self._fixture(root, "# 标题\n")
+            with self.assertRaises(SystemExit):
+                self.wiki.cmd_clean(self._cfg(root),
+                                    self._args(root, rules=str(root / "nope.json")))
+
+    def test_parser_exposes_clean(self):
+        ap = self.wiki.build_parser()
+        a = ap.parse_args(["clean", "docs"])
+        self.assertEqual((a.profile, a.apply), ("external", False))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""md-site CLI 单测 —— stdlib `unittest`，零第三方依赖。
+"""md-bundle CLI 单测 —— stdlib `unittest`，零第三方依赖。
 
-CLI 本体是没有 `.py` 后缀的单文件（`md-site/cli/md-site`），用 `SourceFileLoader` 载入。
+CLI 本体是没有 `.py` 后缀的单文件（`md-bundle/cli/md-bundle`），用 `SourceFileLoader` 载入。
 
 覆盖的是**两次真实返工**：
   ① `relativize` 把属性等号吃掉（`href="./assets/` 子串替换成 `href"../assets/`），
@@ -20,12 +20,12 @@ import unittest
 import zipfile
 from pathlib import Path
 
-CLI = Path(__file__).resolve().parents[1] / "md-site" / "cli" / "md-site"
+CLI = Path(__file__).resolve().parents[1] / "md-bundle" / "cli" / "md-bundle"
 
-_loader = importlib.machinery.SourceFileLoader("mdsite", str(CLI))
-_spec = importlib.util.spec_from_loader("mdsite", _loader)
-mdsite = importlib.util.module_from_spec(_spec)
-_loader.exec_module(mdsite)
+_loader = importlib.machinery.SourceFileLoader("mdbundle", str(CLI))
+_spec = importlib.util.spec_from_loader("mdbundle", _loader)
+mdbundle = importlib.util.module_from_spec(_spec)
+_loader.exec_module(mdbundle)
 
 
 def _strip_utf8_flag(path: Path) -> None:
@@ -44,31 +44,31 @@ def _strip_utf8_flag(path: Path) -> None:
 class RelativizeTest(unittest.TestCase):
     def test_absolute_asset_gets_depth_prefix(self):
         html = '<link rel="stylesheet" href="/assets/style.css">'
-        self.assertEqual(mdsite.relativize(html, 2),
+        self.assertEqual(mdbundle.relativize(html, 2),
                          '<link rel="stylesheet" href="../../assets/style.css">')
 
     def test_equals_sign_is_preserved(self):
         """等号绝不能丢——`href"…"` 会被浏览器当成未知属性，样式与脚本静默失效。"""
-        out = mdsite.relativize('<a href="./x.md">', 1)
+        out = mdbundle.relativize('<a href="./x.md">', 1)
         self.assertNotIn('href"', out)
         self.assertIn('href="', out)
 
     def test_relative_link_is_not_rewritten(self):
         """VitePress 已生成的 `./xx.html` 不得再变 `../xx.html`（全站断链的真实事故）。"""
-        self.assertEqual(mdsite.relativize('<a href="./05-组织与成员.html">', 1),
+        self.assertEqual(mdbundle.relativize('<a href="./05-组织与成员.html">', 1),
                          '<a href="./05-组织与成员.html">')
 
     def test_vitepress_parent_link_is_normalized(self):
-        self.assertEqual(mdsite.relativize('<a href="./../02-数据库设计/x.html">', 1),
+        self.assertEqual(mdbundle.relativize('<a href="./../02-数据库设计/x.html">', 1),
                          '<a href="../02-数据库设计/x.html">')
 
     def test_site_root_keeps_trailing_slash(self):
-        self.assertEqual(mdsite.relativize('<a href="/">', 1), '<a href="../">')
-        self.assertEqual(mdsite.relativize('<a href="/">', 0), '<a href="./">')
+        self.assertEqual(mdbundle.relativize('<a href="/">', 1), '<a href="../">')
+        self.assertEqual(mdbundle.relativize('<a href="/">', 0), '<a href="./">')
 
     def test_external_and_anchor_untouched(self):
         html = '<a href="https://example.com/x">x</a><a href="#a">a</a>'
-        self.assertEqual(mdsite.relativize(html, 1), html)
+        self.assertEqual(mdbundle.relativize(html, 1), html)
 
 
 class VerifyTest(unittest.TestCase):
@@ -76,13 +76,13 @@ class VerifyTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             page = Path(td) / "a.html"
             page.write_text('<link href"assets/x.css">', encoding="utf-8")
-            probs = mdsite.html_problems(page.read_text(encoding="utf-8"), page, Path(td))
+            probs = mdbundle.html_problems(page.read_text(encoding="utf-8"), page, Path(td))
         self.assertTrue(any("缺等号" in p for p in probs), probs)
 
     def test_broken_relative_ref_is_reported(self):
         with tempfile.TemporaryDirectory() as td:
             page = Path(td) / "a.html"
-            probs = mdsite.html_problems('<a href="./nope.html">', page, Path(td))
+            probs = mdbundle.html_problems('<a href="./nope.html">', page, Path(td))
             page.write_text("", encoding="utf-8")
         self.assertTrue(any("断链" in p for p in probs), probs)
 
@@ -98,7 +98,7 @@ class ZipTest(unittest.TestCase):
             src = Path(td) / "src"
             self._tree(src)
             out = Path(td) / "out.zip"
-            count = mdsite.zip_tree(src, out, "交付稿_2026-11-05")
+            count = mdbundle.zip_tree(src, out, "交付稿_2026-11-05")
             self.assertEqual(count, 2)
             with zipfile.ZipFile(out) as zf:
                 infos = zf.infolist()
@@ -113,8 +113,8 @@ class ZipTest(unittest.TestCase):
             src = Path(td) / "src"
             self._tree(src)
             out = Path(td) / "good.zip"
-            mdsite.zip_tree(src, out, "交付稿")
-            self.assertEqual(mdsite.check_zip(out), [])
+            mdbundle.zip_tree(src, out, "交付稿")
+            self.assertEqual(mdbundle.check_zip(out), [])
 
     def test_check_rejects_missing_utf8_flag(self):
         """Python 的 zipfile **会自动**给非 ASCII 名置 0x800，所以坏包只能在字节层造
@@ -124,7 +124,7 @@ class ZipTest(unittest.TestCase):
             with zipfile.ZipFile(out, "w") as zf:
                 zf.writestr(zipfile.ZipInfo("交付稿/00-说明.md"), "# x\n")
             _strip_utf8_flag(out)
-            probs = mdsite.check_zip(out)
+            probs = mdbundle.check_zip(out)
         self.assertTrue(any("UTF-8" in p for p in probs), probs)
 
     def test_check_reports_broken_md_link(self):
@@ -133,8 +133,8 @@ class ZipTest(unittest.TestCase):
             (src).mkdir()
             (src / "a.md").write_text("[缺](不存在.md)\n", encoding="utf-8")
             out = Path(td) / "broken.zip"
-            mdsite.zip_tree(src, out, "稿")
-            probs = mdsite.check_zip(out)
+            mdbundle.zip_tree(src, out, "稿")
+            probs = mdbundle.check_zip(out)
         self.assertTrue(any("断链" in p for p in probs), probs)
 
 

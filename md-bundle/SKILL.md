@@ -1,10 +1,10 @@
 ---
-name: md-site
+name: md-bundle
 description: Markdown 交付包工具链 — md 目录打包为 UTF-8 文件名 zip、转换为可 file:// 直读的离线 VitePress 站点（相对路径、mermaid 构建期预渲染、宽屏）、产物校验（编码标志/属性/断链）
 user-invocable: true
 ---
 
-# md-site — Markdown 交付包工具链
+# md-bundle — Markdown 交付包工具链
 
 把一棵 **md 目录树**变成可外发的交付物：要么是纯 md 的 zip，要么是双击就能看的离线站点。
 
@@ -13,14 +13,14 @@ user-invocable: true
 
 ## 定位与边界
 
-- **管「md 树 → 交付产物」**：打包、静态站构建、产物校验。
-- **不管「内容清洗」**：哪些词不该出现、哪些编号要拆，属项目口径，由调用方（如 `tz delivery scan`）负责。
+- **管「md 树 → 自包含产物」**：打包、静态站构建、产物校验。三个命令共性是**把一棵 md 树打成一个包**——站点只是包的形态之一。
+- **不管「内容清洗」**：哪些词不该出现、哪些编号要拆，属**出口层治理**，归 `llm-wiki clean`。本 skill 是**材料化工具**：不判断内外、不读清洗规则、不碰正文。
 - **不管「站点部署」**：产出的是本地目录／zip，不发布。
 - **不假设项目结构**：`--root` 定位项目根（找 `node_modules`），其余全部显式参数。
 
 ---
 
-## §1 命令面（`cli/md-site`）
+## §1 命令面（`cli/md-bundle`）
 
 | 命令 | 作用 |
 |---|---|
@@ -32,18 +32,18 @@ user-invocable: true
 
 `pack`：
 ```
-md-site pack <src> --out <dir> [--name N] [--top DIR]
+md-bundle pack <src> --out <dir> [--name N] [--top DIR]
 ```
 
 `build`：
 ```
-md-site build <src> --out <dir> [--name N] [--title T] [--date D]
+md-bundle build <src> --out <dir> [--name N] [--title T] [--date D]
                    [--suffix 离线页面] [--work DIR] [--keep]
 ```
 - `--name` 缺省 `<title>_<date>`；`--title` 缺省取首个 md 的 H1；`--date` 缺省今天。
 - 产物：`<out>/<name>.zip`（pack）／`<out>/<name>_<suffix>.zip`（build）。
 
-> **旗标以 `md-site --help` 为准**；本表只给命令面与作用。
+> **旗标以 `md-bundle --help` 为准**；本表只给命令面与作用。
 
 ---
 

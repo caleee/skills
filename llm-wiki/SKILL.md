@@ -26,10 +26,15 @@ user-invocable: true
 |---|---|---|---|
 | **源** | 原始素材：调研记录、截图、导出数据、外部仓快照 | 人（策展） | **不可变**——LLM 只读不改 |
 | **编译** | 整理后的结论：设计稿、参考、分析、索引 | **LLM 维护** | 可重建；每篇自带变更记录 |
-| **出口** | 对外成品：PDF、交付包、汇报材料 | 人（签发） | **唯一对外面**；脱敏与口径在此一处把关 |
+| **出口** | **给人看**的产物：PDF、交付包、汇报材料 | 人（签发） | **唯一对外面**；**不带内部编号／决策链接／AI 字样／站外文档链接**；脱敏与内容范围**按产物**定 |
 
 - **schema 层**（第 0 层）：`AGENTS.md` 与其声明段——人与 LLM 共同演进，决定前两层长什么样。
 - **源 → 编译**是「提炼」，**编译 → 出口**是「材料化」；**跨层不得直连**（源不直转出口）。
+
+> **出口层的约束与「给谁看」无关**。内部编号（`MT-211`／`D-251`）对项目组同事和对客户一样是天书，
+> 所以它归**统一底线**，不属于「内部稿可以放宽」的范畴。真正按产物变化的只有两件：**脱敏**
+> （真实地址／未脱敏截图）与**内容范围**（未完成事项、风险、排期），由项目声明段按产物定。
+> `clean` 的 `--profile` 就是这个信号：`common` 段对所有产物成立，`external` 段只对需要脱敏的产物生效。
 
 ## §2 目录四理念（P1–P4）
 
@@ -93,6 +98,7 @@ user-invocable: true
 | `llmwiki export` | 生成 AI 可消费出口 | — |
 | `llmwiki pdf` | mermaid 转 PNG 中转（供 md→pdf） | mmdc（**可选**，按需装） |
 | `llmwiki move` | **移动稿件并重算全仓站内相对链接**（按「移动前基准」解析、保留目录链接尾斜杠；默认 `git mv` 保历史） | git（可关闭） |
+| `llmwiki clean <dir>` | **出口层清洗**：按规则集检测/替换（默认只读不写，旗标见命令帮助） | — |
 
 > **旗标以 `llmwiki <cmd> --help` 为准**——本表只给命令面与作用，**不复述旗标**
 > （逐条罗列必与实现漂移）。`nav build` / `deploy` 会写盘甚至删目录，用前先看
@@ -103,6 +109,22 @@ user-invocable: true
 > `PUPPETEER_EXECUTABLE_PATH=~/Library/Caches/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-mac-arm64/chrome-headless-shell mmdc -i x.mmd -o x.png`
 > （实测 Chrome for Testing 153.0.8010.12 驱动 mmdc 11.17.0 正常出图；puppeteer 自身期望 152.0.7977.75，版本不符只是警告）。
 > 不出口 PDF 的仓库不必安装 `@mermaid-js/mermaid-cli`（npm 全局约 461M）。
+
+**`clean` 的规则文件**（由项目提供，JSON；`.llm-wiki.toml` 的 `[clean].rules` 指向它）：
+
+```json
+{
+  "common":   { "replace": [{"pattern": "…", "repl": "…", "why": "…"}],
+                "report":  [{"pattern": "…", "why": "…"}] },
+  "external": { "report":  [{"pattern": "…", "why": "…"}] }
+}
+```
+
+- **`replace` 与 `report` 的分界是「替换后句子是否仍通顺」**：外链转纯文本、简称→全称可自动；
+  编号与 AI 字样要重写整句，只能 `report`。
+- 规则作者**须按上下文写正则**：`PM 系统` → `项目管理系统`，而非裸 `PM` → `项目管理系统`
+  （后者会得到「项目管理系统 系统」）。
+- 任一行命中即退出 1（门禁语义）；`--apply` 只落 `replace`，`report` 永远留给人工。
 
 **配置**：项目根 `.llm-wiki.toml`（端口、目录映射、lint 开关、drift watch、pdf 主题映射）。无配置时用最小默认。
 

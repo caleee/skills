@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""md-site — Markdown 交付包工具链（skill `md-site`）
+"""md-bundle — Markdown 交付包工具链（skill `md-bundle`）
 
 判据见 ../SKILL.md。三种能力，彼此独立：
 
@@ -399,7 +399,7 @@ def cmd_build(args: argparse.Namespace) -> int:
     name, date = _naming(src, args)
     title = args.title or _title_of(src)
     out_dir = Path(args.out).resolve()
-    work = Path(args.work).resolve() if args.work else out_dir / ".tmp" / "md-site"
+    work = Path(args.work).resolve() if args.work else out_dir / ".tmp" / "md-bundle"
     try:
         dist = build_site(src, work, title, date, args.lang)
     except subprocess.CalledProcessError as exc:
@@ -442,7 +442,7 @@ def cmd_check(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="md-site",
+        prog="md-bundle",
         description="Markdown 交付包工具链：打包 / 离线 VitePress 站 / 产物校验")
     parser.add_argument("--root", help="项目根（定位 node_modules）；默认向上找 .git")
     parser.add_argument("--json", action="store_true", help="机器可读输出")
@@ -464,7 +464,7 @@ def main(argv: list[str] | None = None) -> int:
     p_build.add_argument("--title")
     p_build.add_argument("--date")
     p_build.add_argument("--suffix", default="offline", help="离线包后缀（默认 offline）")
-    p_build.add_argument("--work", help="构建中转目录（默认 <out>/.tmp/md-site）")
+    p_build.add_argument("--work", help="构建中转目录（默认 <out>/.tmp/md-bundle）")
     p_build.add_argument("--keep", action="store_true", help="保留中转目录")
     p_build.add_argument("--lang", default="zh-CN")
     p_build.set_defaults(func=cmd_build)
